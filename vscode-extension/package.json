@@ -1,0 +1,59 @@
+{
+  "name": "cc-diff",
+  "displayName": "CC Diff",
+  "description": "Show file diffs after Claude Code conversations with Accept/Deny controls",
+  "version": "1.0.0",
+  "publisher": "cc-diff",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cc-diff.setupHooks",
+        "title": "安装 Hook 脚本",
+        "category": "CC Diff"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cc-diff-sidebar",
+          "title": "CC Diff",
+          "icon": "$(diff)"
+        }
+      ]
+    },
+    "views": {
+      "cc-diff-sidebar": [
+        {
+          "type": "webview",
+          "id": "cc-diff.view",
+          "name": "Changes"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "diff": "^5.2.0"
+  }
+}
