@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CC Diff</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        var(--vscode-sideBar-background, #1e1e1e);
+      --fg:        var(--vscode-foreground, var(--vscode-sideBar-foreground, #333333));
+      --muted:     var(--vscode-descriptionForeground, #555555);
+      --border:    var(--vscode-sideBar-border, #333333);
+      --hover:     var(--vscode-list-hoverBackground, #2a2d2e);
+      --active:    var(--vscode-list-activeSelectionBackground, #37373d);
+      --focus:     var(--vscode-focusBorder, #007acc);
+      --accent:    var(--vscode-textLink-foreground, #3794ff);
+      --green:     var(--vscode-terminal-ansiGreen, #23a952);
+      --red:       var(--vscode-terminal-ansiRed, #e54b4b);
+      --yellow:    var(--vscode-terminal-ansiYellow, #d4a72c);
+      --font:      var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+      --mono:      var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', 'Courier New', monospace);
+      --btn-text:  var(--vscode-button-foreground, #ffffff);
+      --radius:    5px;
+    }
+    body.vscode-light {
+      --muted: color-mix(in srgb, var(--vscode-descriptionForeground, #555555) 75%, #000 25%);
+    }
+    body {
+      font-family: var(--font);
+      font-size: 12px;
+      color: var(--fg);
+      background: var(--bg);
+      line-height: 1.5;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+    :focus-visible {
+      outline: 1px solid var(--focus);
+      outline-offset: -1px;
+      border-radius: 2px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 14px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+    .header-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg);
+      text-transform: uppercase;
+    }
+    .header-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--btn-text);
+      font-size: 9.5px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+    .header-badge:empty { display: none; }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      text-align: center;
+    }
+    .empty-mark {
+      font-size: 28px;
+      font-family: var(--mono);
+      color: var(--muted);
+      margin-bottom: 10px;
+      opacity: 0.5;
+    }
+    .empty-title {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 6px;
+    }
+    .empty-desc {
+      font-size: 11.5px;
+      line-height: 1.6;
+      color: var(--muted);
+      max-width: 240px;
+    }
+    .file-list { border-top: 1px solid var(--border); }
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      border-left: 2px solid transparent;
+      transition: background 0.15s ease;
+    }
+    .file-row:hover { background: var(--hover); }
+    .file-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-right: 1px;
+    }
+    .file-dot.pending  { background: var(--accent); }
+    .file-dot.accepted { background: var(--green); }
+    .file-dot.denied   { background: var(--red); }
+    .file-dot.partial  { background: var(--yellow); }
+    .file-info { flex: 1; min-width: 0; }
+    .file-path {
+      font-size: 11px;
+      font-family: var(--mono);
+      line-height: 1.35;
+      word-break: break-all;
+    }
+    .file-meta {
+      font-size: 9.5px;
+      color: var(--muted);
+      font-family: var(--mono);
+      margin-top: 0;
+    }
+    .file-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .btn {
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 7px;
+      height: 18px;
+      line-height: 16px;
+      border: 1px solid transparent;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      background: transparent;
+      color: var(--fg);
+      transition: 0.15s ease;
+    }
+    .btn-accept { border-color: var(--green); color: var(--green); }
+    .btn-accept:hover { background: var(--green); color: var(--btn-text); }
+    .btn-deny { border-color: var(--red); color: var(--red); }
+    .btn-deny:hover { background: var(--red); color: var(--btn-text); }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 14px;
+      border-top: 1px solid var(--border);
+      position: sticky;
+      bottom: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+    .footer-progress {
+      font-size: 10px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .footer-btn {
+      font-family: var(--font);
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 10px;
+      height: 20px;
+      line-height: 16px;
+      border: 1px solid;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      background: transparent;
+      transition: 0.15s ease;
+    }
+    .footer-btn.accept-all {
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .footer-btn.accept-all:hover {
+      background: var(--green);
+      color: var(--btn-text);
+    }
+    .footer-btn.deny-all {
+      border-color: var(--red);
+      color: var(--red);
+    }
+    .footer-btn.deny-all:hover {
+      background: var(--red);
+      color: var(--btn-text);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="header-badge" id="pending-badge"></span>
+  </div>
+  <div id="root"></div>
+  <script>
+    var vscode;
+    try {
+      vscode = acquireVsCodeApi();
+    } catch(e) {
+      vscode = { postMessage: function(m) { console.log('postMessage:', m); } };
+    }
+    var state = { files: __INITIAL_FILES__ };
+
+    window.onerror = function(msg, url, line) {
+      var el = document.getElementById('root');
+      if (el) el.innerHTML = '<div style="color:red;padding:10px;font:12px monospace;"><strong>JS Error:</strong><br>' + String(msg) + '<br>line: ' + line + '</div>';
+    };
+
+    function esc(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function escAttr(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function plural(n, word) {
+      return n + ' ' + word + (n !== 1 ? 's' : '');
+    }
+
+    function render() {
+      var root = document.getElementById('root');
+      var files = state.files;
+      var badge = document.getElementById('pending-badge');
+
+      if (!files || !files.length) {
+        badge.textContent = '';
+        root.innerHTML =
+          '<div class="empty-state">' +
+            '<div class="empty-mark">&Delta;</div>' +
+            '<div class="empty-title">No changes to review</div>' +
+            '<div class="empty-desc">File diffs from Claude Code sessions appear here after each conversation.</div>' +
+          '</div>';
+        return;
+      }
+
+      var totalPending = 0;
+      for (var i = 0; i < files.length; i++) {
+        var st = files[i].status;
+        if (st === 'pending' || st === 'partial') totalPending++;
+      }
+      badge.textContent = totalPending || '';
+
+      var html = '<div class="file-list">';
+
+      for (var i = 0; i < files.length; i++) {
+        var file = files[i];
+
+        html += '<div class="file-row" data-file="' + escAttr(file.file) + '">';
+
+        html += '<span class="file-dot ' + escAttr(file.status) + '"></span>';
+        html += '<div class="file-info">';
+        html += '<div class="file-path">' + esc(file.file) + '</div>';
+        html += '<div class="file-meta">' + plural(file.hunks, 'chunk') + ' &middot; session ' + esc(file.sessionId.substring(0, 8)) + '</div>';
+        html += '</div>';
+
+        html += '<div class="file-actions">';
+        html += '<button class="btn btn-accept" data-action="acceptFile" data-file="' + escAttr(file.file) + '" data-patch="' + escAttr(file.patchId) + '">Accept</button>';
+        html += '<button class="btn btn-deny" data-action="denyFile" data-file="' + escAttr(file.file) + '" data-patch="' + escAttr(file.patchId) + '">Deny</button>';
+        html += '</div>';
+
+        html += '</div>';
+      }
+
+      html += '</div>';
+
+      // Footer with bulk actions
+      var total = files.length;
+      var reviewed = 0;
+      for (var j = 0; j < files.length; j++) {
+        var s = files[j].status;
+        if (s === 'accepted' || s === 'denied') reviewed++;
+      }
+      html += '<div class="footer">';
+      html += '<button class="footer-btn accept-all" data-action="acceptAll">Accept All</button>';
+      html += '<span class="footer-progress">' + reviewed + '/' + total + ' reviewed</span>';
+      html += '<button class="footer-btn deny-all" data-action="denyAll">Deny All</button>';
+      html += '</div>';
+
+      root.innerHTML = html;
+      attachListeners();
+    }
+
+    function attachListeners() {
+      // File row click → open diff
+      var rows = document.querySelectorAll('[data-file]');
+      for (var r = 0; r < rows.length; r++) {
+        rows[r].addEventListener('click', function(e) {
+          if (e.target.closest('button')) return;
+          var fp = this.getAttribute('data-file');
+          if (fp) {
+            vscode.postMessage({ command: 'openDiff', file: fp });
+          }
+        });
+      }
+
+      // Button clicks
+      var btns = document.querySelectorAll('[data-action]');
+      for (var b = 0; b < btns.length; b++) {
+        btns[b].addEventListener('click', function(e) {
+          e.stopPropagation();
+          var action = this.getAttribute('data-action');
+          var msg = { command: action };
+
+          var f = this.getAttribute('data-file');
+          var p = this.getAttribute('data-patch');
+          var h = this.getAttribute('data-hunk');
+
+          if (f) msg.file = f;
+          if (p) msg.patchId = p;
+          if (h !== null && h !== undefined) msg.hunkId = parseInt(h, 10);
+
+          vscode.postMessage(msg);
+        });
+      }
+    }
+
+    window.addEventListener('message', function(e) {
+      var msg = e.data;
+      if (msg.command === 'updateState') {
+        state.files = msg.files;
+        render();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

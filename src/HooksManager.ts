@@ -9,12 +9,18 @@ import * as vscode from 'vscode';
  */
 export class HooksManager {
   private extensionPath: string;
+  private logger: (msg: string) => void = () => {};
 
   /** Version marker written to the hooks target directory for update checks. */
-  private static readonly VERSION_MARKER = 'cc-diff-hooks-v1';
+  private static readonly VERSION_MARKER = 'cc-diff-hooks-v3';
 
   constructor(extensionPath: string) {
     this.extensionPath = extensionPath;
+  }
+
+  /** Attach an output channel for logging hook operations. */
+  setLogger(logger: (msg: string) => void): void {
+    this.logger = logger;
   }
 
   // ------------------------------------------------------------------
@@ -38,31 +44,92 @@ export class HooksManager {
   /**
    * Called on extension activation. If hook scripts already exist in the
    * workspace, check whether they are outdated and silently update them.
+   *
+   * Compares the full content of each hook script file (source vs target)
+   * rather than relying solely on a version marker, so that any
+   * corruption, manual edit, or partial update is detected.
    */
   async autoUpdate(workspaceRoot: string): Promise<void> {
     try {
       const targetDir = this.getTargetHooksDir(workspaceRoot);
 
-      // If no hooks are installed yet, do nothing (user hasn't set up)
       if (!fs.existsSync(targetDir)) {
+        this.logger('autoUpdate: hooks not installed — skipping');
         return;
       }
 
-      // Check version marker
-      const markerPath = path.join(targetDir, '.version');
-      if (fs.existsSync(markerPath)) {
-        const installedVersion = fs.readFileSync(markerPath, 'utf8').trim();
-        if (installedVersion === HooksManager.VERSION_MARKER) {
-          return; // Already up to date
-        }
+      if (!this.needsUpdate(targetDir)) {
+        this.logger('autoUpdate: hooks up to date — skipping');
+        return;
       }
 
-      // Update hooks
+      // Log which files differ
+      const diffs = this.getChangedFiles(targetDir);
+      this.logger(`autoUpdate: updating hooks — changed files: ${diffs.join(', ') || 'all'}`);
+
       await this.copyHooksToTarget(targetDir);
       this.writeVersionMarker(targetDir);
-    } catch {
-      // Auto-update is best-effort — never break activation
+      this.logger('autoUpdate: hooks updated successfully');
+    } catch (e: any) {
+      this.logger(`autoUpdate: ERROR — ${e.message || e}`);
     }
+  }
+
+  /** Return list of hook files that differ between source and target. */
+  private getChangedFiles(targetDir: string): string[] {
+    const sourceDir = this.getSourceHooksDir();
+    const filesToCheck = ['pre-tool-use.js', 'session-end.js'];
+    const changed: string[] = [];
+
+    for (const file of filesToCheck) {
+      const src = path.join(sourceDir, file);
+      const dst = path.join(targetDir, file);
+      if (!fs.existsSync(dst)) {
+        changed.push(`${file} (missing)`);
+        continue;
+      }
+      if (!fs.existsSync(src)) continue;
+      const srcContent = fs.readFileSync(src, 'utf8');
+      const dstContent = fs.readFileSync(dst, 'utf8');
+      if (srcContent !== dstContent) {
+        changed.push(file);
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Compare every bundled hook script against its installed counterpart.
+   * Returns true if any script is missing or differs — a full content
+   * comparison, not a version-number check.
+   */
+  private needsUpdate(targetDir: string): boolean {
+    const sourceDir = this.getSourceHooksDir();
+    const filesToCheck = ['pre-tool-use.js', 'session-end.js'];
+
+    for (const file of filesToCheck) {
+      const src = path.join(sourceDir, file);
+      const dst = path.join(targetDir, file);
+
+      // Source should always exist (it is bundled with the extension)
+      if (!fs.existsSync(src)) {
+        continue;
+      }
+
+      // Target missing → needs update
+      if (!fs.existsSync(dst)) {
+        return true;
+      }
+
+      // Full content comparison
+      const srcContent = fs.readFileSync(src, 'utf8');
+      const dstContent = fs.readFileSync(dst, 'utf8');
+      if (srcContent !== dstContent) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // ------------------------------------------------------------------
@@ -74,24 +141,28 @@ export class HooksManager {
    * Called by the `cc-diff.setupHooks` command.
    */
   async setupHooks(workspaceRoot: string): Promise<void> {
+    this.logger(`setupHooks: starting — workspaceRoot="${workspaceRoot}"`);
+
     const sourceDir = this.getSourceHooksDir();
     if (!fs.existsSync(sourceDir)) {
+      this.logger(`setupHooks: ERROR — source dir not found: ${sourceDir}`);
       throw new Error(`Hooks source directory not found: ${sourceDir}`);
     }
 
     const targetDir = this.getTargetHooksDir(workspaceRoot);
+    this.logger(`setupHooks: target="${targetDir}"`);
 
     // 1. Copy hook scripts
     await this.copyHooksToTarget(targetDir);
+    this.logger('setupHooks: scripts copied');
 
-    // 2. Install diff dependency (copy from extension's node_modules)
-    await this.copyDiffPackage(targetDir);
-
-    // 3. Write version marker
+    // 2. Write version marker
     this.writeVersionMarker(targetDir);
 
-    // 4. Update .claude/settings.json
+    // 3. Update .claude/settings.json
     await this.updateClaudeSettings(workspaceRoot, targetDir);
+    this.logger('setupHooks: .claude/settings.json updated');
+    this.logger('setupHooks: complete');
   }
 
   // ------------------------------------------------------------------
@@ -121,30 +192,6 @@ export class HooksManager {
     if (fs.existsSync(pkgSrc)) {
       fs.copyFileSync(pkgSrc, pkgDst);
     }
-  }
-
-  /**
-   * Copy the `diff` npm package from the extension's node_modules to the
-   * target hooks directory so the hook scripts can `require('diff')`.
-   */
-  private async copyDiffPackage(targetDir: string): Promise<void> {
-    // The extension has `diff` as a dependency at:
-    //   <extensionPath>/node_modules/diff/
-    const extDiffDir = path.join(this.extensionPath, 'node_modules', 'diff');
-    if (!fs.existsSync(extDiffDir)) {
-      // Fallback: try the project-level node_modules (dev scenario)
-      const altDiffDir = path.join(this.extensionPath, '..', '..', 'node_modules', 'diff');
-      if (fs.existsSync(altDiffDir)) {
-        this.copyDirSync(altDiffDir, path.join(targetDir, 'node_modules', 'diff'));
-        return;
-      }
-      throw new Error(
-        '未找到 diff 依赖包，请先在扩展目录中运行 npm install'
-      );
-    }
-
-    const targetDiffDir = path.join(targetDir, 'node_modules', 'diff');
-    this.copyDirSync(extDiffDir, targetDiffDir);
   }
 
   /** Write a version marker file so auto-update can detect stale hooks. */
@@ -215,8 +262,10 @@ export class HooksManager {
       settings.hooks.PreToolUse.push(preToolUseEntry);
     }
 
-    // SessionEnd: add or update cc-diff entry (idempotent)
-    const sessionEndEntry = {
+    // Stop: add or update cc-diff entry (fires after every Claude response turn)
+    // matcher is REQUIRED by Claude Code schema; empty string = match all
+    const stopEntry = {
+      matcher: '',
       hooks: [
         {
           type: 'command',
@@ -226,22 +275,34 @@ export class HooksManager {
       ],
     };
 
-    if (!Array.isArray(settings.hooks.SessionEnd)) {
-      settings.hooks.SessionEnd = [];
+    if (!Array.isArray(settings.hooks.Stop)) {
+      settings.hooks.Stop = [];
     }
 
-    // Check if a cc-diff session-end hook already exists
-    const existingSessionEnd = settings.hooks.SessionEnd.findIndex((h: any) =>
+    // Check if a cc-diff stop hook already exists
+    const existingStop = settings.hooks.Stop.findIndex((h: any) =>
       h.hooks?.some(
         (hh: any) =>
           typeof hh.command === 'string' && hh.command.includes('session-end.js')
       )
     );
 
-    if (existingSessionEnd >= 0) {
-      settings.hooks.SessionEnd[existingSessionEnd] = sessionEndEntry;
+    if (existingStop >= 0) {
+      settings.hooks.Stop[existingStop] = stopEntry;
     } else {
-      settings.hooks.SessionEnd.push(sessionEndEntry);
+      settings.hooks.Stop.push(stopEntry);
+    }
+
+    // Also clean up any legacy SessionEnd entry
+    if (settings.hooks.SessionEnd) {
+      settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter((h: any) =>
+        !h.hooks?.some((hh: any) =>
+          typeof hh.command === 'string' && hh.command.includes('session-end.js')
+        )
+      );
+      if (settings.hooks.SessionEnd.length === 0) {
+        delete settings.hooks.SessionEnd;
+      }
     }
 
     // Write back
@@ -252,18 +313,4 @@ export class HooksManager {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
   }
 
-  /** Recursively copy a directory. */
-  private copyDirSync(src: string, dst: string): void {
-    fs.mkdirSync(dst, { recursive: true });
-    const entries = fs.readdirSync(src, { withFileTypes: true });
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name);
-      const dstPath = path.join(dst, entry.name);
-      if (entry.isDirectory()) {
-        this.copyDirSync(srcPath, dstPath);
-      } else {
-        fs.copyFileSync(srcPath, dstPath);
-      }
-    }
-  }
 }

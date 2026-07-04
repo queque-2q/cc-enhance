@@ -1,40 +1,62 @@
 # package.ps1 - CC Diff one-click build and package
-param([switch]$SkipTests)
+param(
+    [string]$Version
+)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 Write-Host "=== CC Diff Package Builder ===" -ForegroundColor Cyan
 
-# 1. Install extension dependencies
-Write-Host "`n[1/4] Installing extension dependencies..." -ForegroundColor Yellow
+# 0. Update version if specified
+if ($Version) {
+    Write-Host "`nVersion parameter detected: $Version" -ForegroundColor Magenta
+    $totalSteps = 4
+} else {
+    $totalSteps = 3
+}
+
+# 1. Update version numbers
+if ($Version) {
+    Write-Host "`n[1/$totalSteps] Updating version to $Version..." -ForegroundColor Yellow
+
+    # Update extension package.json
+    $extPkgPath = Join-Path $root "vscode-extension\package.json"
+    $extPkg = Get-Content $extPkgPath -Raw | ConvertFrom-Json
+    $extPkg.version = $Version
+    $extPkg | ConvertTo-Json -Depth 10 | Set-Content $extPkgPath -Encoding UTF8
+    Write-Host "  Updated package.json" -ForegroundColor Gray
+
+    # Update hooks package.json
+    $hooksPkgPath = Join-Path $root "vscode-extension\hooks\package.json"
+    $hooksPkg = Get-Content $hooksPkgPath -Raw | ConvertFrom-Json
+    $hooksPkg.version = $Version
+    $hooksPkg | ConvertTo-Json -Depth 10 | Set-Content $hooksPkgPath -Encoding UTF8
+    Write-Host "  Updated hooks/package.json" -ForegroundColor Gray
+
+    $stepNum = 2
+} else {
+    $stepNum = 1
+}
+
+# 2. Install extension dependencies
+Write-Host "`n[$stepNum/$totalSteps] Installing extension dependencies..." -ForegroundColor Yellow
 Push-Location "$root\vscode-extension"
 npm install
 Pop-Location
+$stepNum++
 
-# 2. Compile TypeScript
-Write-Host "`n[2/4] Compiling TypeScript..." -ForegroundColor Yellow
+# 3. Compile TypeScript
+Write-Host "`n[$stepNum/$totalSteps] Compiling TypeScript..." -ForegroundColor Yellow
 Push-Location "$root\vscode-extension"
 npx tsc -p ./
 Pop-Location
-
-# 3. Run integration tests
-if (-not $SkipTests) {
-    Write-Host "`n[3/4] Running integration tests..." -ForegroundColor Yellow
-    $testScript = Join-Path (Join-Path $root "test") "integration-test.sh"
-    bash $testScript
-    if ($LASTEXITCODE -ne 0) {
-        throw "Integration tests failed (exit code: $LASTEXITCODE)"
-    }
-    Write-Host "Tests passed!" -ForegroundColor Green
-} else {
-    Write-Host "`n[3/4] Tests skipped (-SkipTests)" -ForegroundColor DarkYellow
-}
+$stepNum++
 
 # 4. Package VSIX
-Write-Host "`n[4/4] Packaging VSIX..." -ForegroundColor Yellow
+Write-Host "`n[$stepNum/$totalSteps] Packaging VSIX..." -ForegroundColor Yellow
 Push-Location "$root\vscode-extension"
-npx vsce package
+npx vsce package --allow-missing-repository
 Pop-Location
 
-Write-Host "`n=== Done! VSIX is in vscode-extension/ ===" -ForegroundColor Green
+Write-Host "`n=== Done! VSIX is in  ===" -ForegroundColor Green

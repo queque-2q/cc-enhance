@@ -6,7 +6,7 @@ set -e
 # Use Windows-compatible temp path (Node.js fs on Windows resolves /tmp as C:\tmp,
 # which differs from Git Bash's /tmp mapping)
 TEST_DIR="F:/tmp/cc-diff-integration-$$"
-HOOKS_DIR="$(cd "$(dirname "$0")/../vscode-extension/hooks" && pwd)"
+HOOKS_DIR="$(cd "$(dirname "$0")/../hooks" && pwd)"
 
 echo "=== cc-diff Integration Test ==="
 echo "Test directory: $TEST_DIR"
@@ -45,17 +45,28 @@ cat hello.txt
 # --- Simulate SessionEnd hook ---
 echo ""
 echo "--- Step 3: SessionEnd hook computes diffs ---"
-echo '{"hook_event_name":"SessionEnd","session_id":"test-s1","cwd":"'"$TEST_DIR"'"}' | node "$HOOKS_DIR/session-end.js"
+echo '{"hook_event_name":"Stop","session_id":"test-s1","cwd":"'"$TEST_DIR"'"}' | node "$HOOKS_DIR/session-end.js"
 echo "SessionEnd exit: $?"
 
 # --- Verify outputs ---
 echo ""
-echo "--- Step 4: Verify patch outputs ---"
-echo "session.json:"
-cat "$TEST_DIR/.claude/cc-diff/patches/test-s1/session.json"
+echo "--- Step 4: Verify flat patch outputs ---"
+PATCHES_DIR="$TEST_DIR/.claude/cc-diff/patches"
+
+echo "index.json:"
+cat "$PATCHES_DIR/index.json"
 echo ""
-echo "hello.txt.patch.json:"
-cat "$TEST_DIR/.claude/cc-diff/patches/test-s1/hello.txt.patch.json"
+
+# Find the patch file (dynamic timestamp-sessionId-safeFile name)
+PATCH_FILE=$(ls "$PATCHES_DIR"/*-test-s1-hello.txt.patch.json 2>/dev/null | head -1)
+if [ -z "$PATCH_FILE" ]; then
+  echo "FAIL: patch file not found!"
+  echo "Directory listing:"
+  ls -la "$PATCHES_DIR/"
+  exit 1
+fi
+echo "Patch file: $(basename "$PATCH_FILE")"
+cat "$PATCH_FILE"
 
 # --- Verify snapshots cleaned up ---
 echo ""
@@ -70,7 +81,6 @@ fi
 # --- Verify patch contains expected changes ---
 echo ""
 echo "--- Step 6: Verify patch content ---"
-PATCH_FILE="$TEST_DIR/.claude/cc-diff/patches/test-s1/hello.txt.patch.json"
 if ! grep -q "line 2 modified" "$PATCH_FILE"; then
   echo "FAIL: patch doesn't contain expected change"
   exit 1
@@ -80,6 +90,23 @@ if ! grep -q "line 4 added" "$PATCH_FILE"; then
   exit 1
 fi
 echo "PASS: patch contains expected changes"
+
+# --- Verify index.json entries ---
+echo ""
+echo "--- Step 7: Verify index.json structure ---"
+if ! grep -q '"version"' "$PATCHES_DIR/index.json"; then
+  echo "FAIL: index.json missing version"
+  exit 1
+fi
+if ! grep -q '"file": "hello.txt"' "$PATCHES_DIR/index.json"; then
+  echo "FAIL: index.json missing file entry"
+  exit 1
+fi
+if ! grep -q '"sessionId": "test-s1"' "$PATCHES_DIR/index.json"; then
+  echo "FAIL: index.json missing sessionId"
+  exit 1
+fi
+echo "PASS: index.json structure validated"
 
 echo ""
 echo "=== Integration test PASSED ==="

@@ -9,16 +9,15 @@ cc-diff/
 ├── hooks/                    # Claude Code Hook 脚本
 │   ├── pre-tool-use.js       # PreToolUse hook：编辑前保存文件快照
 │   └── session-end.js        # SessionEnd hook：会话结束计算 diff，生成 patch
-├── vscode-extension/         # VSCode 扩展
-│   ├── src/
-│   │   ├── extension.ts      # 扩展入口
-│   │   ├── DiffManager.ts    # 核心状态管理：加载 patch、Accept/Deny、反向 git apply
-│   │   ├── WebviewProvider.ts # 侧边栏 Webview UI
-│   │   └── types/
-│   │       └── diff.d.ts     # diff 包的 TypeScript 类型声明
-│   ├── out/                  # 编译输出
-│   ├── package.json          # 扩展清单
-│   └── tsconfig.json         # TypeScript 配置
+├── src/
+│   ├── extension.ts      # 扩展入口
+│   ├── DiffManager.ts    # 核心状态管理：加载 patch、Accept/Deny、反向 git apply
+│   ├── WebviewProvider.ts # 侧边栏 Webview UI
+│   └── types/
+│       └── diff.d.ts     # diff 包的 TypeScript 类型声明
+├── out/                  # 编译输出
+├── package.json          # 扩展清单
+└── tsconfig.json         # TypeScript 配置
 ├── test/
 │   └── integration-test.sh   # Hooks 集成测试脚本
 └── docs/
@@ -124,3 +123,12 @@ Claude Code 编辑文件 → PreToolUse Hook 保存快照
 | Diff 计算 | `diff` npm 包（unified diff） |
 | Deny 操作 | `git apply --reverse` |
 | 构建 | `tsc` |
+
+## TODO
+
+当文件被改动时，执行git apply reverse重新计算Before文件时
+当前逻辑：如果有冲突，说明hunk重叠了，这个时候不apply, 而是报错。
+修改后逻辑：
+如果有冲突，说明hunk重叠了，这个时候不用更新Before文件。而是应该根据Before和Current文件重新计算diff, 更新到patches目录。如果没有冲突，说明是别的地方修改了，这个时候根据当前Current文件和patch文件重新计算Before文件，重新diff.
+
+把cc的stop hook改成Edit结束的hook, 该hook更新patch，更新index.json, 删除快照等。并且它要把this._debounceTimer清除掉。

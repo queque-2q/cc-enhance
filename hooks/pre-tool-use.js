@@ -14,6 +14,19 @@
 const fs = require('fs');
 const path = require('path');
 
+/** Normalize any path to POSIX (forward slashes) for cross-platform storage. */
+const toPosix = (p) => p.replace(/\\/g, '/');
+
+/**
+ * Script is at <workspace>/.claude/cc-diff/hooks/pre-tool-use.js
+ * Derive cc-diff root and workspace root from script location.
+ */
+function getDirs() {
+  const ccDiffRoot = path.dirname(__dirname);
+  const workspaceRoot = path.dirname(path.dirname(ccDiffRoot));
+  return { ccDiffRoot, workspaceRoot };
+}
+
 function readStdin() {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -28,15 +41,10 @@ function readStdin() {
 }
 
 function getFilePath(toolInput) {
-  // Write and Edit use file_path; NotebookEdit uses notebook_path
   return toolInput.file_path || toolInput.notebook_path || null;
 }
 
 async function main() {
-  // Platform-native path for file resolution (handles drive letters on Windows).
-  // path.posix for snapshot path construction (forward slashes cross-platform).
-  const pp = path.posix;
-
   try {
     const event = await readStdin();
     const { tool_input, session_id, cwd } = event;
@@ -47,24 +55,23 @@ async function main() {
       process.exit(0);
     }
 
-    // Resolve absolute path using platform-native path (handles win32 drive letters)
-    const absPath = path.resolve(cwd, filePath);
+    // Derive paths from the script's own location
+    const { workspaceRoot } = getDirs();
 
-    // Normalize to forward slashes for posix operations
-    const toPosix = (p) => p.replace(/\\/g, '/');
-    const posixCwd = toPosix(cwd);
+    // Resolve absolute path using platform-native path
+    const absPath = path.resolve(workspaceRoot, filePath);
+
+    // Compute relative path (POSIX for cross-platform key consistency)
+    const posixRoot = toPosix(workspaceRoot);
     const posixAbsPath = toPosix(absPath);
-
-    // Compute relative path from workspace root
-    let relativePath = pp.relative(posixCwd, posixAbsPath);
-    // Guard against paths outside cwd (use basename as fallback)
+    let relativePath = path.posix.relative(posixRoot, posixAbsPath);
     if (relativePath.startsWith('..')) {
-      relativePath = pp.basename(posixAbsPath);
+      relativePath = path.posix.basename(posixAbsPath);
     }
 
-    // Create snapshots directory
-    const snapDir = pp.join(posixCwd, '.claude', 'cc-diff', 'snapshots', session_id);
-    const snapFileDir = pp.dirname(pp.join(snapDir, relativePath));
+    // Build snapshot path using platform-native path.join
+    const snapDir = path.join(workspaceRoot, '.claude', 'cc-diff', 'snapshots', session_id);
+    const snapFileDir = path.join(snapDir, path.dirname(relativePath));
     fs.mkdirSync(snapFileDir, { recursive: true });
 
     // Read current file content (empty string if file doesn't exist yet)
@@ -75,13 +82,12 @@ async function main() {
       // File doesn't exist — this is a new file being created
     }
 
-    // Write snapshot
-    const snapPath = pp.join(snapDir, relativePath + '.snap');
+    // Write snapshot — store using the POSIX relative path as filename
+    const snapPath = path.join(snapDir, relativePath + '.snap');
     fs.writeFileSync(snapPath, content, 'utf8');
 
     console.log(JSON.stringify({ systemMessage: 'snapshot saved' }));
   } catch (err) {
-    // Never block the editor — log and exit cleanly
     console.error('[cc-diff pre-tool-use]', err.message);
   }
   process.exit(0);

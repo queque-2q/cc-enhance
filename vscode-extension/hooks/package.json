@@ -1,9 +1,0 @@
-{
-  "name": "cc-diff-hooks",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Claude Code hooks for cc-diff - captures file snapshots and computes diffs",
-  "dependencies": {
-    "diff": "^5.2.0"
-  }
-}
