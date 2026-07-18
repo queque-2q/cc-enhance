@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * cc-diff PreToolUse Hook
+ * cc-diff PreToolUse Hook (v4)
  *
  * Saves a snapshot of file content before Claude Code edits it.
- * Matches: Write | Edit | MultiEdit | NotebookEdit
+ * Uses flat storage: .claude/cc-diff/snapshots/<safeFile>.snap
+ * Registers to index.json v2 on first edit.
  *
  * stdin:  { hook_event_name, tool_name, tool_input, session_id, cwd }
  * stdout: { systemMessage: "..." }
@@ -19,12 +20,18 @@ const toPosix = (p) => p.replace(/\\/g, '/');
 
 /**
  * Script is at <workspace>/.claude/cc-diff/hooks/pre-tool-use.js
- * Derive cc-diff root and workspace root from script location.
+ * ccDiffRoot = <workspace>/.claude/cc-diff
+ * workspaceRoot = <workspace>
  */
 function getDirs() {
   const ccDiffRoot = path.dirname(__dirname);
   const workspaceRoot = path.dirname(path.dirname(ccDiffRoot));
   return { ccDiffRoot, workspaceRoot };
+}
+
+/** Replace path separators and colons with dashes for safe filenames. */
+function toSafeFileName(relativeFile) {
+  return relativeFile.replace(/[/\\:]/g, '-');
 }
 
 function readStdin() {
@@ -44,10 +51,40 @@ function getFilePath(toolInput) {
   return toolInput.file_path || toolInput.notebook_path || null;
 }
 
+// ── Index I/O ──────────────────────────────────────────────────────
+
+function readIndex(indexPath) {
+  if (!fs.existsSync(indexPath)) {
+    return { version: 2, files: [] };
+  }
+  try {
+    const raw = fs.readFileSync(indexPath, 'utf8');
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data.files)) {
+      return { version: 2, files: [] };
+    }
+    return data;
+  } catch (e) {
+    return { version: 2, files: [] };
+  }
+}
+
+function writeIndex(indexPath, indexData) {
+  const tmpPath = indexPath + '.tmp-' + Date.now();
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(indexData, null, 2), 'utf8');
+    fs.renameSync(tmpPath, indexPath);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch {}
+  }
+}
+
+// ── Main ───────────────────────────────────────────────────────────
+
 async function main() {
   try {
     const event = await readStdin();
-    const { tool_input, session_id, cwd } = event;
+    const { tool_input, session_id } = event;
 
     const filePath = getFilePath(tool_input);
     if (!filePath) {
@@ -55,13 +92,12 @@ async function main() {
       process.exit(0);
     }
 
-    // Derive paths from the script's own location
-    const { workspaceRoot } = getDirs();
+    const { ccDiffRoot, workspaceRoot } = getDirs();
 
-    // Resolve absolute path using platform-native path
+    // Resolve absolute path
     const absPath = path.resolve(workspaceRoot, filePath);
 
-    // Compute relative path (POSIX for cross-platform key consistency)
+    // Compute POSIX relative path for index key
     const posixRoot = toPosix(workspaceRoot);
     const posixAbsPath = toPosix(absPath);
     let relativePath = path.posix.relative(posixRoot, posixAbsPath);
@@ -69,12 +105,20 @@ async function main() {
       relativePath = path.posix.basename(posixAbsPath);
     }
 
-    // Build snapshot path using platform-native path.join
-    const snapDir = path.join(workspaceRoot, '.claude', 'cc-diff', 'snapshots', session_id);
-    const snapFileDir = path.join(snapDir, path.dirname(relativePath));
-    fs.mkdirSync(snapFileDir, { recursive: true });
+    const safeFile = toSafeFileName(relativePath);
+    const snapshotsDir = path.join(ccDiffRoot, 'snapshots');
+    const snapPath = path.join(snapshotsDir, safeFile + '.snap');
 
-    // Read current file content (empty string if file doesn't exist yet)
+    // Check if snapshot already exists (this file is already tracked)
+    if (fs.existsSync(snapPath)) {
+      console.log(JSON.stringify({ systemMessage: 'snapshot already exists, skipping' }));
+      process.exit(0);
+    }
+
+    // Ensure directory exists
+    fs.mkdirSync(snapshotsDir, { recursive: true });
+
+    // Read current file content (empty string if file doesn't exist — new file)
     let content = '';
     try {
       content = fs.readFileSync(absPath, 'utf8');
@@ -82,9 +126,25 @@ async function main() {
       // File doesn't exist — this is a new file being created
     }
 
-    // Write snapshot — store using the POSIX relative path as filename
-    const snapPath = path.join(snapDir, relativePath + '.snap');
+    // Write snapshot
     fs.writeFileSync(snapPath, content, 'utf8');
+
+    // Register in index.json v2
+    const indexPath = path.join(ccDiffRoot, 'index.json');
+    const index = readIndex(indexPath);
+
+    // Check if already registered (same file path)
+    const existing = index.files.find(f => f.file === relativePath);
+    if (!existing) {
+      index.files.push({
+        file: relativePath,
+        snapshotFile: safeFile + '.snap',
+        sessionId: session_id,
+        timestamp: Date.now(),
+        status: 'pending',
+      });
+      writeIndex(indexPath, index);
+    }
 
     console.log(JSON.stringify({ systemMessage: 'snapshot saved' }));
   } catch (err) {

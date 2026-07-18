@@ -12,7 +12,7 @@ export class HooksManager {
   private logger: (msg: string) => void = () => {};
 
   /** Version marker written to the hooks target directory for update checks. */
-  private static readonly VERSION_MARKER = 'cc-diff-hooks-v3';
+  private static readonly VERSION_MARKER = 'cc-diff-hooks-v4';
 
   constructor(extensionPath: string) {
     this.extensionPath = extensionPath;

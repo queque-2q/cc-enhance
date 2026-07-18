@@ -271,12 +271,12 @@
         html += '<span class="file-dot ' + escAttr(file.status) + '"></span>';
         html += '<div class="file-info">';
         html += '<div class="file-path">' + esc(file.file) + '</div>';
-        html += '<div class="file-meta">' + plural(file.hunks, 'chunk') + ' &middot; session ' + esc(file.sessionId.substring(0, 8)) + '</div>';
+        html += '<div class="file-meta">session ' + esc(file.sessionId.substring(0, 8)) + '</div>';
         html += '</div>';
 
         html += '<div class="file-actions">';
-        html += '<button class="btn btn-accept" data-action="acceptFile" data-file="' + escAttr(file.file) + '" data-patch="' + escAttr(file.patchId) + '">Accept</button>';
-        html += '<button class="btn btn-deny" data-action="denyFile" data-file="' + escAttr(file.file) + '" data-patch="' + escAttr(file.patchId) + '">Deny</button>';
+        html += '<button class="btn btn-accept" data-action="acceptFile" data-file="' + escAttr(file.file) + '">Accept</button>';
+        html += '<button class="btn btn-deny" data-action="denyFile" data-file="' + escAttr(file.file) + '">Deny</button>';
         html += '</div>';
 
         html += '</div>';
@@ -323,12 +323,8 @@
           var msg = { command: action };
 
           var f = this.getAttribute('data-file');
-          var p = this.getAttribute('data-patch');
-          var h = this.getAttribute('data-hunk');
 
           if (f) msg.file = f;
-          if (p) msg.patchId = p;
-          if (h !== null && h !== undefined) msg.hunkId = parseInt(h, 10);
 
           vscode.postMessage(msg);
         });
