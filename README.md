@@ -126,9 +126,6 @@ Claude Code 编辑文件 → PreToolUse Hook 保存快照
 
 ## TODO
 
-当文件被改动时，执行git apply reverse重新计算Before文件时
-当前逻辑：如果有冲突，说明hunk重叠了，这个时候不apply, 而是报错。
-修改后逻辑：
-如果有冲突，说明hunk重叠了，这个时候不用更新Before文件。而是应该根据Before和Current文件重新计算diff, 更新到patches目录。如果没有冲突，说明是别的地方修改了，这个时候根据当前Current文件和patch文件重新计算Before文件，重新diff.
+- 可编辑，编辑时修改原始文件
+- 按钮水平，背景色设置
 
-把cc的stop hook改成Edit结束的hook, 该hook更新patch，更新index.json, 删除快照等。并且它要把this._debounceTimer清除掉。

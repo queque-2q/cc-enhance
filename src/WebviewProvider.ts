@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SnapshotManager, type TrackedFile } from './SnapshotManager';
-import { DiffPanelProvider } from './DiffPanelProvider';
+import { MonacoDiffProvider } from './MonacoDiffProvider';
 
 // ======================================================================
 // Types for webview communication
@@ -24,18 +24,18 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
   private _workspaceRoot: string;
   private _snapshotManager: SnapshotManager;
   private _outputChannel: vscode.OutputChannel;
-  private _diffPanelProvider: DiffPanelProvider;
+  private _diffEditorManager: MonacoDiffProvider;
 
   constructor(
     workspaceRoot: string,
     snapshotManager: SnapshotManager,
     outputChannel: vscode.OutputChannel,
-    diffPanelProvider: DiffPanelProvider
+    diffEditorManager: MonacoDiffProvider
   ) {
     this._workspaceRoot = workspaceRoot;
     this._snapshotManager = snapshotManager;
     this._outputChannel = outputChannel;
-    this._diffPanelProvider = diffPanelProvider;
+    this._diffEditorManager = diffEditorManager;
   }
 
   resolveWebviewView(
@@ -57,7 +57,7 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
 
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
-        this.refresh();
+        this.checkBranchMismatch();
       }
     });
   }
@@ -91,6 +91,48 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
     this._view.webview.postMessage({ command: 'updateState', files });
   }
 
+  /**
+   * Check if any tracked files were recorded on a different git branch.
+   * If so, prompt the user to clean them up.
+   */
+  private async checkBranchMismatch(): Promise<void> {
+    const currentBranch = this._snapshotManager.getCurrentGitBranch();
+    if (!currentBranch) {
+      // Not a git repo — nothing to check
+      this.refresh();
+      return;
+    }
+
+    const mismatched = this._snapshotManager.getMismatchedFiles(currentBranch);
+    if (mismatched.length === 0) {
+      this.refresh();
+      return;
+    }
+
+    // Collect unique branch names for the message
+    const branches = [...new Set(mismatched.map(f => f.branch).filter(Boolean))];
+    const branchList = branches.join(', ');
+    const fileList = mismatched.map(f => f.file).join('\n');
+
+    const answer = await vscode.window.showWarningMessage(
+      `检测到 Git 分支已切换（当前: \`${currentBranch}\`，快照所属: \`${branchList}\`）。\n\n` +
+      `${mismatched.length} 个文件的快照属于其他分支，是否清理？\n\n${fileList}`,
+      { modal: true },
+      '清理'
+    );
+
+    if (answer === '清理') {
+      for (const f of mismatched) {
+        this._snapshotManager.removeTrackedFile(f.file);
+      }
+      this._outputChannel.appendLine(
+        `[WebviewProvider] Branch mismatch cleanup: removed ${mismatched.length} file(s) from branch(es) ${branchList}`
+      );
+    }
+
+    this.refresh();
+  }
+
   // ------------------------------------------------------------------
   // Message handling
   // ------------------------------------------------------------------
@@ -100,19 +142,26 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
 
     switch (command) {
       case 'openDiff':
-        this._diffPanelProvider.openDiff(file);
+        this._diffEditorManager.openDiff(file);
         break;
 
       case 'acceptFile': {
         this._snapshotManager.acceptAll(file);
+        if (this._diffEditorManager.hasActiveDiff(file)) {
+          this._diffEditorManager.acceptAll(file);
+        }
         this.refresh();
         break;
       }
 
       case 'denyFile': {
-        const result = this._snapshotManager.denyAll(file, this._workspaceRoot);
-        if (!result.success) {
-          vscode.window.showErrorMessage(`CC Diff: Failed to revert "${file}" — ${result.error}`);
+        if (this._diffEditorManager.hasActiveDiff(file)) {
+          this._diffEditorManager.denyAll(file);
+        } else {
+          const result = this._snapshotManager.denyAll(file, this._workspaceRoot);
+          if (!result.success) {
+            vscode.window.showErrorMessage(`CC Diff: Failed to revert "${file}" — ${result.error}`);
+          }
         }
         this.refresh();
         break;

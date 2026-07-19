@@ -78,7 +78,7 @@ export class HooksManager {
   /** Return list of hook files that differ between source and target. */
   private getChangedFiles(targetDir: string): string[] {
     const sourceDir = this.getSourceHooksDir();
-    const filesToCheck = ['pre-tool-use.js', 'session-end.js'];
+    const filesToCheck = ['pre-tool-use.js', 'post-tool-use.js', 'session-end.js'];
     const changed: string[] = [];
 
     for (const file of filesToCheck) {
@@ -105,7 +105,7 @@ export class HooksManager {
    */
   private needsUpdate(targetDir: string): boolean {
     const sourceDir = this.getSourceHooksDir();
-    const filesToCheck = ['pre-tool-use.js', 'session-end.js'];
+    const filesToCheck = ['pre-tool-use.js', 'post-tool-use.js', 'session-end.js'];
 
     for (const file of filesToCheck) {
       const src = path.join(sourceDir, file);
@@ -177,7 +177,7 @@ export class HooksManager {
     fs.mkdirSync(targetDir, { recursive: true });
 
     // Copy hook JS files
-    const filesToCopy = ['pre-tool-use.js', 'session-end.js'];
+    const filesToCopy = ['pre-tool-use.js', 'post-tool-use.js', 'session-end.js'];
     for (const file of filesToCopy) {
       const src = path.join(sourceDir, file);
       const dst = path.join(targetDir, file);
@@ -228,6 +228,7 @@ export class HooksManager {
     // Build hook command paths (use forward slashes for cross-platform JSON)
     const posixHooksDir = hooksDir.replace(/\\/g, '/');
     const preToolUseCmd = `node ${posixHooksDir}/pre-tool-use.js`;
+    const postToolUseCmd = `node ${posixHooksDir}/post-tool-use.js`;
     const sessionEndCmd = `node ${posixHooksDir}/session-end.js`;
 
     // Ensure hooks container exists
@@ -262,10 +263,43 @@ export class HooksManager {
       settings.hooks.PreToolUse.push(preToolUseEntry);
     }
 
-    // Stop: add or update cc-diff entry (fires after every Claude response turn)
-    // matcher is REQUIRED by Claude Code schema; empty string = match all
+    // PostToolUse: add or update the cc-diff entry
+    const postToolUseMatcher = 'Write|Edit|MultiEdit|NotebookEdit';
+    if (!Array.isArray(settings.hooks.PostToolUse)) {
+      settings.hooks.PostToolUse = [];
+    }
+
+    const existingPostTool = settings.hooks.PostToolUse.findIndex(
+      (h: any) => h.matcher === postToolUseMatcher
+    );
+
+    const postToolUseEntry = {
+      matcher: postToolUseMatcher,
+      hooks: [
+        {
+          type: 'command',
+          command: postToolUseCmd,
+          timeout: 30000,
+        },
+      ],
+    };
+
+    if (existingPostTool >= 0) {
+      settings.hooks.PostToolUse[existingPostTool] = postToolUseEntry;
+    } else {
+      settings.hooks.PostToolUse.push(postToolUseEntry);
+    }
+
+    // Stop: add or update the cc-diff entry (session-end.js)
+    if (!Array.isArray(settings.hooks.Stop)) {
+      settings.hooks.Stop = [];
+    }
+
+    const existingStop = settings.hooks.Stop.findIndex(
+      (h: any) => h.hooks?.[0]?.command === sessionEndCmd
+    );
+
     const stopEntry = {
-      matcher: '',
       hooks: [
         {
           type: 'command',
@@ -275,34 +309,10 @@ export class HooksManager {
       ],
     };
 
-    if (!Array.isArray(settings.hooks.Stop)) {
-      settings.hooks.Stop = [];
-    }
-
-    // Check if a cc-diff stop hook already exists
-    const existingStop = settings.hooks.Stop.findIndex((h: any) =>
-      h.hooks?.some(
-        (hh: any) =>
-          typeof hh.command === 'string' && hh.command.includes('session-end.js')
-      )
-    );
-
     if (existingStop >= 0) {
       settings.hooks.Stop[existingStop] = stopEntry;
     } else {
       settings.hooks.Stop.push(stopEntry);
-    }
-
-    // Also clean up any legacy SessionEnd entry
-    if (settings.hooks.SessionEnd) {
-      settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter((h: any) =>
-        !h.hooks?.some((hh: any) =>
-          typeof hh.command === 'string' && hh.command.includes('session-end.js')
-        )
-      );
-      if (settings.hooks.SessionEnd.length === 0) {
-        delete settings.hooks.SessionEnd;
-      }
     }
 
     // Write back

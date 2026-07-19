@@ -23,7 +23,7 @@ git config user.name "Test"
 # so they must be at the correct path for the test to work.
 mkdir -p "$TEST_DIR/.claude/cc-diff/hooks"
 cp "$REPO_HOOKS_DIR/pre-tool-use.js" "$TEST_DIR/.claude/cc-diff/hooks/"
-cp "$REPO_HOOKS_DIR/session-end.js" "$TEST_DIR/.claude/cc-diff/hooks/"
+cp "$REPO_HOOKS_DIR/post-tool-use.js" "$TEST_DIR/.claude/cc-diff/hooks/"
 HOOKS_DIR="$TEST_DIR/.claude/cc-diff/hooks"
 
 # Create initial file
@@ -52,11 +52,11 @@ line 4 added" > hello.txt
 echo "Current hello.txt:"
 cat hello.txt
 
-# --- Step 3: SessionEnd hook verifies changes ---
+# --- Step 3: postToolUse hook verifies changes ---
 echo ""
 echo "--- Step 3: Stop hook verifies changes ---"
-echo '{"hook_event_name":"Stop","session_id":"test-s1","cwd":"'"$TEST_DIR"'"}' | node "$HOOKS_DIR/session-end.js"
-echo "SessionEnd exit: $?"
+echo '{"hook_event_name":"Stop","session_id":"test-s1","cwd":"'"$TEST_DIR"'"}' | node "$HOOKS_DIR/post-tool-use.js"
+echo "postToolUse exit: $?"
 
 # --- Step 4: Verify index.json v2 ---
 echo ""
@@ -93,11 +93,11 @@ fi
 
 echo "PASS: index.json v2 structure validated"
 
-# --- Step 5: Verify snapshot still exists (not deleted by session-end) ---
+# --- Step 5: Verify snapshot still exists (not deleted by post-tool-use) ---
 echo ""
 echo "--- Step 5: Verify snapshot preserved ---"
 if [ -f "$TEST_DIR/.claude/cc-diff/snapshots/hello.txt.snap" ]; then
-  echo "PASS: snapshot preserved after session-end"
+  echo "PASS: snapshot preserved after post-tool-use"
 else
   echo "FAIL: snapshot was deleted"
   exit 1
@@ -119,14 +119,14 @@ else
   exit 1
 fi
 
-# --- Step 7: Test session-end cleanup when file reverted ---
+# --- Step 7: Test post-tool-use cleanup when file reverted ---
 echo ""
 echo "--- Step 7: Test cleanup when file is reverted ---"
 # Revert hello.txt to original content
 echo "line 1
 line 2
 line 3" > hello.txt
-echo '{"hook_event_name":"Stop","session_id":"test-s3","cwd":"'"$TEST_DIR"'"}' | node "$HOOKS_DIR/session-end.js"
+echo '{"hook_event_name":"Stop","session_id":"test-s3","cwd":"'"$TEST_DIR"'"}' | node "$HOOKS_DIR/post-tool-use.js"
 echo "Exit: $?"
 # Check that index.json was cleaned up
 if [ -f "$INDEX_PATH" ]; then

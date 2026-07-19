@@ -113,14 +113,15 @@ async function main() {
     for (const entry of index.files) {
       const snapPath = path.join(snapshotsDir, entry.snapshotFile);
 
-      // Read snapshot
+      // Read snapshot — missing snapshot means file was created externally,
+      // treat as empty content so the diff shows the entire file as "added"
       let snapshotContent = '';
+      let snapshotExists = true;
       try {
         snapshotContent = fs.readFileSync(snapPath, 'utf8');
       } catch (e) {
-        debugLog(`  REMOVE: "${entry.file}" — snapshot file missing`);
-        removedCount++;
-        continue;
+        snapshotExists = false;
+        debugLog(`  SNAPSHOT_MISSING: "${entry.file}" — treating as empty`);
       }
 
       // Read current workspace file
@@ -133,9 +134,16 @@ async function main() {
         fileExists = false;
       }
 
+      // If both are empty/non-existent, remove entry (nothing to diff)
+      if (!snapshotExists && !fileExists) {
+        debugLog(`  REMOVE: "${entry.file}" — both snapshot and file missing`);
+        removedCount++;
+        continue;
+      }
+
       // If file was deleted, always keep the entry (user should review)
       // If content is identical, the edit was reverted — remove entry
-      if (fileExists && snapshotContent === currentContent) {
+      if (fileExists && snapshotExists && snapshotContent === currentContent) {
         debugLog(`  REMOVE: "${entry.file}" — no changes (reverted)`);
         try { fs.unlinkSync(snapPath); } catch {}
         removedCount++;
@@ -147,7 +155,7 @@ async function main() {
       entry.status = entry.status || 'pending';
       kept.push(entry);
       updatedCount++;
-      debugLog(`  KEEP: "${entry.file}" — changes detected`);
+      debugLog(`  KEEP: "${entry.file}" — changes detected (snapshot:${snapshotExists ? 'yes' : 'no'}, file:${fileExists ? 'yes' : 'no'})`);
     }
 
     // --- Write updated index ---
@@ -155,6 +163,17 @@ async function main() {
       const newIndex = { version: 2, files: kept };
       writeIndex(indexPath, newIndex);
       debugLog(`DONE: ${removedCount} removed, ${updatedCount} kept — total: ${kept.length}`);
+
+      // Write signal file to notify the VSCode extension
+      const notifyPath = path.join(ccDiffRoot, 'notify');
+      const notifyTmp = notifyPath + '.tmp-' + Date.now();
+      try {
+        fs.writeFileSync(notifyTmp, String(now), 'utf8');
+        fs.renameSync(notifyTmp, notifyPath);
+        debugLog(`NOTIFY: signal written — ${notifyPath}`);
+      } catch (e) {
+        debugLog(`NOTIFY: ERROR — ${e.message}`);
+      }
     } else {
       debugLog('DONE: no changes');
     }

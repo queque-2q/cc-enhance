@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CC Diff</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: var(--vscode-editor-background, #1e1e1e);
+      --fg: var(--vscode-editor-foreground, #d4d4d4);
+      --muted: var(--vscode-descriptionForeground, #888);
+      --border: var(--vscode-panel-border, #333);
+      --accent: var(--vscode-textLink-foreground, #3794ff);
+      --green: var(--vscode-terminal-ansiGreen, #23a952);
+      --red: var(--vscode-terminal-ansiRed, #e54b4b);
+      --btn-bg: var(--vscode-button-background, #0e639c);
+      --btn-fg: var(--vscode-button-foreground, #fff);
+      --btn-secondary-bg: var(--vscode-button-secondaryBackground, #3a3d41);
+      --font: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+      --mono: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', 'Courier New', monospace);
+    }
+    html, body {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      font-family: var(--font);
+      font-size: 13px;
+      color: var(--fg);
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ──────────────────────────── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .toolbar-filename {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .btn-group { display: flex; gap: 4px; }
+    .btn {
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 10px;
+      height: 22px;
+      border: 1px solid;
+      border-radius: 3px;
+      cursor: pointer;
+      background: transparent;
+      white-space: nowrap;
+      transition: background 0.12s ease;
+    }
+    .btn-accept {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--btn-fg);
+    }
+    .btn-accept:hover,
+    .btn-accept.active {
+      filter: brightness(0.85);
+    }
+    .btn-deny {
+      background: var(--red);
+      border-color: var(--red);
+      color: var(--btn-fg);
+    }
+    .btn-deny:hover,
+    .btn-deny.active {
+      filter: brightness(0.85);
+    }
+    .btn-mode {
+      color: var(--muted);
+      border-color: var(--border);
+      font-size: 10px;
+    }
+    .btn-mode.active {
+      color: var(--fg);
+      background: var(--btn-secondary-bg);
+      border-color: var(--accent);
+    }
+    .btn-mode:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .btn-nav {
+      color: var(--muted);
+      border-color: var(--border);
+      font-size: 10px;
+      padding: 2px 6px;
+    }
+    .btn-nav:not(:disabled):hover {
+      color: var(--fg);
+      border-color: var(--accent);
+    }
+    .btn-nav:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .btn-file {
+      color: var(--accent);
+      border-color: var(--accent);
+      font-size: 11px;
+    }
+    .btn-file:hover {
+      background: var(--accent);
+      color: var(--btn-fg);
+    }
+
+    /* ── Monaco container ──────────────────── */
+    #editor-container {
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ── Footer ────────────────────────────── */
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 4px 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ── Loading / Empty ───────────────────── */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .overlay-text {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* ── Hunk action widget ────────────────── */
+    .hunk-actions {
+      display: inline-flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 4px;
+      vertical-align: middle;
+    }
+    .hunk-actions .btn-hunk {
+      font-family: var(--font);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 8px;
+      height: 18px;
+      line-height: 16px;
+      border: 1px solid;
+      border-radius: 3px;
+      cursor: pointer;
+      background: transparent;
+      white-space: nowrap;
+      transition: background 0.12s ease;
+    }
+    .hunk-actions .btn-hunk.btn-accept { background: var(--accent); border-color: var(--accent); color: var(--btn-fg); }
+    .hunk-actions .btn-hunk.btn-accept:hover { filter: brightness(0.85); }
+    .hunk-actions .btn-hunk.btn-deny { background: var(--red); border-color: var(--red); color: var(--btn-fg); }
+    .hunk-actions .btn-hunk.btn-deny:hover { filter: brightness(0.85); }
+
+  </style>
+</head>
+<body>
+  <!-- Toolbar -->
+  <div class="toolbar" id="toolbar">
+    <span class="toolbar-filename" id="filename">CC Diff</span>
+    <span style="font-size:10px;color:var(--muted)" id="hunk-count"></span>
+    <div class="btn-group">
+      <button class="btn btn-mode active" id="btn-sidebyside" title="Side-by-side view">Side-by-side</button>
+      <button class="btn btn-mode" id="btn-inline" title="Inline view">Inline</button>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-accept" id="btn-accept-all">Accept All</button>
+      <button class="btn btn-deny" id="btn-deny-all">Deny All</button>
+    </div>
+    <div class="btn-group" id="nav-group">
+      <button class="btn btn-nav" id="btn-prev-hunk" title="Previous Hunk" disabled>◀</button>
+      <span style="font-size:10px;color:var(--muted);min-width:48px;text-align:center" id="hunk-pos">-</span>
+      <button class="btn btn-nav" id="btn-next-hunk" title="Next Hunk">▶</button>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-file" id="btn-open-file" title="Open current file at this position">Open File</button>
+    </div>
+  </div>
+
+  <!-- Monaco diff editor -->
+  <div id="editor-container">
+    <div class="overlay" id="loading-overlay">
+      <span class="overlay-text">Loading diff editor...</span>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer" id="footer">
+    <span id="footer-text"></span>
+  </div>
+
+  <script src="__MONACO_LOADER_JS__"></script>
+  <script>
+    // ==================================================================
+    // VSCode API
+    // ==================================================================
+    var vscode;
+    try {
+      vscode = acquireVsCodeApi();
+    } catch (e) {
+      vscode = { postMessage: function(m) { console.log('postMessage:', m); } };
+    }
+
+    // ==================================================================
+    // State
+    // ==================================================================
+    var state = {
+      file: '',
+      hunks: [],
+      diffEditor: null,
+      originalModel: null,
+      modifiedModel: null,
+      contentWidgets: [],
+      mode: 'side-by-side',  // 'side-by-side' | 'inline'
+      currentHunkIndex: -1   // 0-based index into hunks array, -1 = none
+    };
+
+    // ==================================================================
+    // Monaco bootstrap
+    // ==================================================================
+    var MONACO_LOADED = false;
+
+    // Configure Monaco Environment for web workers
+    self.MonacoEnvironment = {
+      getWorkerUrl: function (moduleId, label) {
+        if (label === 'json') {
+          return '__MONACO_BASE_URI__' + 'vs/language/json/json.worker.js';
+        }
+        if (label === 'css' || label === 'scss' || label === 'less') {
+          return '__MONACO_BASE_URI__' + 'vs/language/css/css.worker.js';
+        }
+        if (label === 'html' || label === 'handlebars' || label === 'razor') {
+          return '__MONACO_BASE_URI__' + 'vs/language/html/html.worker.js';
+        }
+        if (label === 'typescript' || label === 'javascript') {
+          return '__MONACO_BASE_URI__' + 'vs/language/typescript/ts.worker.js';
+        }
+        return '__MONACO_BASE_URI__' + 'vs/editor/editor.worker.js';
+      }
+    };
+
+    require.config({
+      baseUrl: '__MONACO_BASE_URI__'
+    });
+
+    require(['vs/editor/editor.main'], function () {
+      MONACO_LOADED = true;
+      hideLoading();
+
+      // If renderDiff arrived before Monaco loaded, render now
+      if (state._pendingRender) {
+        renderDiff(state._pendingRender);
+        state._pendingRender = null;
+      }
+    });
+
+    function hideLoading() {
+      var overlay = document.getElementById('loading-overlay');
+      if (overlay) overlay.style.display = 'none';
+    }
+
+    // ==================================================================
+    // Language detection
+    // ==================================================================
+    function getLanguageFromFilename(filename) {
+      if (!filename) return 'plaintext';
+      var ext = filename.split('.').pop().toLowerCase();
+
+      // Monaco language ID map for common file extensions
+      var extMap = {
+        js: 'javascript', mjs: 'javascript', cjs: 'javascript',
+        jsx: 'javascript',
+        ts: 'typescript', tsx: 'typescript',
+        json: 'json', jsonc: 'json',
+        html: 'html', htm: 'html',
+        css: 'css', scss: 'scss', less: 'less',
+        py: 'python', pyw: 'python',
+        rs: 'rust',
+        go: 'go',
+        java: 'java',
+        c: 'c', h: 'c',
+        cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hxx: 'cpp',
+        cs: 'csharp',
+        rb: 'ruby',
+        php: 'php',
+        swift: 'swift',
+        kt: 'kotlin', kts: 'kotlin',
+        scala: 'scala',
+        md: 'markdown', mdx: 'markdown', markdown: 'markdown',
+        yaml: 'yaml', yml: 'yaml',
+        xml: 'xml', svg: 'xml',
+        sql: 'sql',
+        sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
+        ps1: 'powershell', psm1: 'powershell',
+        bat: 'bat', cmd: 'bat',
+        dockerfile: 'dockerfile',
+        toml: 'ini', ini: 'ini', cfg: 'ini',
+        lua: 'lua',
+        r: 'r',
+        pl: 'perl', pm: 'perl',
+        dart: 'dart',
+        vue: 'html',
+        svelte: 'html',
+        astro: 'html',
+      };
+
+      var lang = extMap[ext];
+      if (lang) return lang;
+
+      // Try Monaco's registered languages as fallback
+      if (monaco && monaco.languages && monaco.languages.getLanguages) {
+        var langs = monaco.languages.getLanguages();
+        for (var i = 0; i < langs.length; i++) {
+          if (langs[i].extensions) {
+            for (var j = 0; j < langs[i].extensions.length; j++) {
+              if (langs[i].extensions[j] === '.' + ext) {
+                return langs[i].id;
+              }
+            }
+          }
+        }
+      }
+
+      return 'plaintext';
+    }
+
+    // ==================================================================
+    // Theme detection
+    // ==================================================================
+    function detectMonacoTheme() {
+      var bodyClass = document.body.className || '';
+      if (bodyClass.indexOf('vscode-high-contrast') !== -1) return 'hc-black';
+      if (bodyClass.indexOf('vscode-dark') !== -1) return 'vs-dark';
+      return 'vs';
+    }
+
+    function syncTheme() {
+      if (!state.diffEditor) return;
+      var theme = detectMonacoTheme();
+      monaco.editor.setTheme(theme);
+    }
+
+    // ==================================================================
+    // Render diff
+    // ==================================================================
+    function renderDiff(data) {
+      // If Monaco not loaded yet, defer
+      if (!MONACO_LOADED) {
+        state._pendingRender = data;
+        return;
+      }
+
+      state.file = data.file;
+      state.hunks = data.hunks;
+
+      var container = document.getElementById('editor-container');
+
+      // Update UI
+      document.getElementById('filename').textContent = 'CC Diff: ' + (data.file || '');
+      updateToolbar(data.hunks.length);
+
+      var original = data.original || '';
+      var modified = data.modified || '';
+      var language = getLanguageFromFilename(data.file);
+
+      // Dispose old content widgets
+      disposeContentWidgets();
+
+      if (state.diffEditor) {
+        // Update existing models (also update language in case file changed)
+        state.originalModel.setValue(original);
+        state.modifiedModel.setValue(modified);
+        if (state.originalModel.getLanguageId() !== language) {
+          monaco.editor.setModelLanguage(state.originalModel, language);
+        }
+        if (state.modifiedModel.getLanguageId() !== language) {
+          monaco.editor.setModelLanguage(state.modifiedModel, language);
+        }
+      } else {
+        // First render: create models + diff editor
+        state.originalModel = monaco.editor.createModel(original, language);
+        state.modifiedModel = monaco.editor.createModel(modified, language);
+
+        state.diffEditor = monaco.editor.createDiffEditor(container, {
+          enableSplitViewResizing: true,
+          renderSideBySide: state.mode === 'side-by-side',
+          useInlineViewWhenSpaceIsLimited: false,
+          readOnly: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          glyphMargin: false,
+          lineNumbers: 'on',
+          renderIndicators: false,
+          originalEditable: false,
+          automaticLayout: true,
+          ignoreTrimWhitespace: false,
+        });
+
+        // Responsive mode: force inline when container is too narrow
+        setupResponsiveMode(container);
+
+        state.diffEditor.setModel({
+          original: state.originalModel,
+          modified: state.modifiedModel,
+        });
+
+        syncTheme();
+
+        // Enable visible cursor on modified editor (readOnly hides it by default)
+        var modEdit = state.diffEditor.getModifiedEditor();
+        modEdit.updateOptions({ readOnly: false, cursorBlinking: 'blink', cursorStyle: 'line' });
+
+        // Listen to scroll and cursor changes on modified editor to update nav buttons
+        modEdit.onDidScrollChange(function () {
+          updateNavButtons();
+        });
+        modEdit.onDidChangeCursorPosition(function () {
+          updateNavButtons();
+        });
+      }
+      if (state.diffEditor) {
+        state.diffEditor.updateOptions({
+          renderSideBySide: !forcedInline && state.mode === 'side-by-side'
+        });
+      }
+
+      // Create content widgets for each hunk
+      var modifiedEditor = state.diffEditor.getModifiedEditor();
+      for (var i = 0; i < data.hunks.length; i++) {
+        addHunkWidget(modifiedEditor, data.hunks[i]);
+      }
+
+      // Update footer
+      document.getElementById('footer-text').textContent =
+        data.hunks.length + ' hunk(s) remaining';
+
+      // Set cursor to first hunk start line (avoid default 1,1 position)
+      if (data.hunks.length > 0) {
+        var firstHunkM = data.hunks[0].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+        if (firstHunkM) {
+          var firstLine = parseInt(firstHunkM[1], 10);
+          state.diffEditor.getModifiedEditor().setSelection({
+            startLineNumber: firstLine,
+            startColumn: 1,
+            endLineNumber: firstLine,
+            endColumn: 1
+          });
+        }
+      }
+
+      // Initialize nav buttons
+      updateNavButtons();
+    }
+
+    function updateDiff(data) {
+      // Same flow as renderDiff but without re-creating editor
+      renderDiff(data);
+    }
+
+    // ==================================================================
+    // Content widgets
+    // ==================================================================
+    function addHunkWidget(editor, hunk) {
+      // Parse hunk header to find position
+      // Format: @@ -oldStart,oldCount +newStart,newCount @@
+      var m = hunk.header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (!m) return;
+
+      var newStart = parseInt(m[1], 10);
+      var newCount = m[2] ? parseInt(m[2], 10) : 1;
+
+      // Place widget at the last line of the hunk in modified editor
+      var anchorPos = { lineNumber: newStart + newCount - 1, column: Number.MAX_SAFE_INTEGER };
+
+      var widget = {
+        hunkId: hunk.id,
+        getId: function () { return 'hunk-actions-' + hunk.id; },
+        getDomNode: function () {
+          // Outer div — Monaco will overwrite its display/position, that's OK.
+          var el = document.createElement('div');
+          el.className = 'hunk-actions';
+
+          var acceptBtn = document.createElement('button');
+          acceptBtn.className = 'btn-hunk btn-accept';
+          acceptBtn.textContent = 'Accept';
+          acceptBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            vscode.postMessage({ command: 'acceptHunk', hunkId: hunk.id });
+          });
+
+          var denyBtn = document.createElement('button');
+          denyBtn.className = 'btn-hunk btn-deny';
+          denyBtn.textContent = 'Deny';
+          denyBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            vscode.postMessage({ command: 'denyHunk', hunkId: hunk.id });
+          });
+
+          el.appendChild(acceptBtn);
+          el.appendChild(denyBtn);
+
+          return el;
+        },
+        getPosition: function () {
+          return {
+            position: anchorPos,
+            preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
+          };
+        },
+      };
+
+      editor.addContentWidget(widget);
+      state.contentWidgets.push(widget);
+    }
+
+    function disposeContentWidgets() {
+      if (!state.diffEditor) return;
+      var editor = state.diffEditor.getModifiedEditor();
+      for (var i = 0; i < state.contentWidgets.length; i++) {
+        try {
+          editor.removeContentWidget(state.contentWidgets[i]);
+        } catch (e) { /* widget may already be removed */ }
+      }
+      state.contentWidgets = [];
+    }
+
+    // ==================================================================
+    // Hunk navigation
+    // ==================================================================
+    function findCurrentHunkIndex() {
+      if (!state.diffEditor || state.hunks.length === 0) return -1;
+      var editor = state.diffEditor.getModifiedEditor();
+
+      // Use cursor position, not visible ranges — cursor is set explicitly
+      // by scrollToHunk after each navigation, forming a reliable chain
+      var selection = editor.getSelection();
+      if (!selection) return -1;
+      var cursorLine = selection.startLineNumber;
+
+      // Find hunk whose range contains cursorLine, or closest hunk
+      var best = -1;
+      var bestDist = Infinity;
+      for (var i = 0; i < state.hunks.length; i++) {
+        var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+        if (!m) continue;
+        var newStart = parseInt(m[1], 10);
+        var newCount = m[2] ? parseInt(m[2], 10) : 1;
+        var newEnd = newStart + newCount - 1;
+
+        if (cursorLine >= newStart && cursorLine <= newEnd) {
+          return i; // Cursor inside this hunk
+        }
+        var dist = Math.min(Math.abs(newStart - cursorLine), Math.abs(newEnd - cursorLine));
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    function navigateHunk(direction) {
+      if (!state.diffEditor || state.hunks.length === 0) return;
+
+      var editor = state.diffEditor.getModifiedEditor();
+      var selection = editor.getSelection();
+      var cursorLine = selection ? selection.startLineNumber : 1;
+
+      if (direction === 'next') {
+        // Find the first hunk whose start line is strictly after the cursor
+        for (var i = 0; i < state.hunks.length; i++) {
+          var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+          if (!m) continue;
+          var newStart = parseInt(m[1], 10);
+          if (newStart > cursorLine) {
+            state.currentHunkIndex = i;
+            scrollToHunk(i);
+            return;
+          }
+        }
+        // Cursor is past all hunks — stay at last hunk
+      } else {
+        // Find the last hunk whose end line is strictly before the cursor
+        var target = -1;
+        for (var i = 0; i < state.hunks.length; i++) {
+          var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+          if (!m) continue;
+          var newStart = parseInt(m[1], 10);
+          var newCount = m[2] ? parseInt(m[2], 10) : 1;
+          var newEnd = newStart + newCount - 1;
+          if (newEnd < cursorLine) {
+            target = i;
+          } else {
+            break;
+          }
+        }
+        if (target >= 0) {
+          state.currentHunkIndex = target;
+          scrollToHunk(target);
+        }
+        // Cursor is before all hunks — stay at first hunk
+      }
+    }
+
+    function scrollToHunk(index) {
+      if (!state.diffEditor || index < 0 || index >= state.hunks.length) return;
+
+      var hunk = state.hunks[index];
+      var m = hunk.header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (!m) return;
+
+      var newStart = parseInt(m[1], 10);
+
+      var modEditor = state.diffEditor.getModifiedEditor();
+      var origEditor = state.diffEditor.getOriginalEditor();
+
+      // Set cursor on target line — this is the position indicator
+      modEditor.setSelection({
+        startLineNumber: newStart,
+        startColumn: 1,
+        endLineNumber: newStart,
+        endColumn: 1
+      });
+      modEditor.focus();
+
+      // Use getTopForLineNumber + setScrollTop for reliable scrolling
+      var lineTop = modEditor.getTopForLineNumber(newStart);
+      var viewHeight = modEditor.getLayoutInfo().height;
+      modEditor.setScrollTop(Math.max(0, lineTop - viewHeight * 0.25));
+
+      // Also scroll original editor to roughly match
+      var origLine = mapModifiedToOriginal(newStart, hunk);
+      if (origLine > 0) {
+        try {
+          var origLineTop = origEditor.getTopForLineNumber(origLine);
+          origEditor.setScrollTop(Math.max(0, origLineTop - viewHeight * 0.25));
+        } catch (e) { /* best-effort */ }
+      }
+
+      vscode.postMessage({
+        command: 'log',
+        text: 'Nav to hunk ' + (index + 1) + '/' + state.hunks.length
+          + ' line ' + newStart + ' (scrollTop=' + Math.round(lineTop) + ')'
+      });
+    }
+
+    /** Roughly map a modified line number back to an original line number using the hunk */
+    function mapModifiedToOriginal(modLine, hunk) {
+      var m = hunk.header.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+      if (!m) return -1;
+      var oldStart = parseInt(m[1], 10);
+      var newStart = parseInt(m[3], 10);
+      // Simple offset mapping
+      return oldStart + (modLine - newStart);
+    }
+
+    function updateNavButtons() {
+      var prevBtn = document.getElementById('btn-prev-hunk');
+      var nextBtn = document.getElementById('btn-next-hunk');
+      var posSpan = document.getElementById('hunk-pos');
+
+      if (state.hunks.length === 0) {
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        posSpan.textContent = '-';
+        return;
+      }
+
+      // Current hunk from cursor position
+      var curIdx = findCurrentHunkIndex();
+      if (curIdx >= 0) {
+        state.currentHunkIndex = curIdx;
+      }
+
+      prevBtn.disabled = curIdx <= 0;
+      nextBtn.disabled = curIdx >= state.hunks.length - 1;
+      posSpan.textContent = curIdx >= 0
+        ? (curIdx + 1) + ' / ' + state.hunks.length
+        : state.hunks.length + ' hunk(s)';
+    }
+
+    // ==================================================================
+    // Open current file
+    // ==================================================================
+    function openCurrentFile() {
+      if (!state.diffEditor || !state.file) return;
+
+      var editor = state.diffEditor.getModifiedEditor();
+      // Use cursor position for consistency with hunk navigation
+      var selection = editor.getSelection();
+      var line = selection ? selection.startLineNumber : 1;
+
+      vscode.postMessage({
+        command: 'openCurrentFile',
+        file: state.file,
+        line: line
+      });
+    }
+
+    // ==================================================================
+    // UI helpers
+    // ==================================================================
+    function updateToolbar(hunkCount) {
+      document.getElementById('hunk-count').textContent =
+        hunkCount > 0 ? hunkCount + ' hunk(s)' : '';
+      updateNavButtons();
+    }
+
+    // Minimum width (px) required for side-by-side to be usable
+    var SIDE_BY_SIDE_MIN_WIDTH = 700;
+    var forcedInline = false; // true when container is too narrow for side-by-side
+
+    function setupResponsiveMode(container) {
+      var ro = new ResizeObserver(function (entries) {
+        var width = entries[0] && entries[0].contentRect ? entries[0].contentRect.width : 0;
+        var wasForced = forcedInline;
+
+        if (width > 0 && width < SIDE_BY_SIDE_MIN_WIDTH) {
+          // Too narrow — force inline
+          forcedInline = true;
+          if (state.diffEditor) {
+            state.diffEditor.updateOptions({ renderSideBySide: false });
+          }
+          document.getElementById('btn-sidebyside').disabled = true;
+          document.getElementById('btn-sidebyside').title = 'Side-by-side (disabled — editor too narrow)';
+          document.getElementById('btn-inline').classList.add('active');
+          document.getElementById('btn-sidebyside').classList.remove('active');
+        } else if (wasForced && width >= SIDE_BY_SIDE_MIN_WIDTH) {
+          // Wide enough again — restore user's chosen mode
+          forcedInline = false;
+          if (state.diffEditor) {
+            state.diffEditor.updateOptions({
+              renderSideBySide: state.mode === 'side-by-side'
+            });
+          }
+          document.getElementById('btn-sidebyside').disabled = false;
+          document.getElementById('btn-sidebyside').title = 'Side-by-side view';
+          document.getElementById('btn-sidebyside').classList.toggle('active', state.mode === 'side-by-side');
+          document.getElementById('btn-inline').classList.toggle('active', state.mode === 'inline');
+        }
+      });
+      ro.observe(container);
+    }
+
+    function setMode(mode) {
+      state.mode = mode;
+      if (state.diffEditor) {
+        // Only apply side-by-side if not forced inline by narrow width
+        if (mode === 'side-by-side' && forcedInline) {
+          // Silently keep inline — too narrow
+          return;
+        }
+        state.diffEditor.updateOptions({
+          renderSideBySide: mode === 'side-by-side'
+        });
+      }
+      // Update active button
+      document.getElementById('btn-sidebyside').classList.toggle('active', mode === 'side-by-side');
+      document.getElementById('btn-inline').classList.toggle('active', mode === 'inline');
+
+      vscode.postMessage({ command: 'switchMode', mode: mode });
+    }
+
+    // ==================================================================
+    // Toolbar events
+    // ==================================================================
+    document.getElementById('btn-sidebyside').addEventListener('click', function () {
+      setMode('side-by-side');
+    });
+    document.getElementById('btn-inline').addEventListener('click', function () {
+      setMode('inline');
+    });
+    document.getElementById('btn-accept-all').addEventListener('click', function () {
+      vscode.postMessage({ command: 'acceptAll' });
+    });
+    document.getElementById('btn-deny-all').addEventListener('click', function () {
+      vscode.postMessage({ command: 'denyAll' });
+    });
+    document.getElementById('btn-prev-hunk').addEventListener('click', function () {
+      navigateHunk('prev');
+    });
+    document.getElementById('btn-next-hunk').addEventListener('click', function () {
+      navigateHunk('next');
+    });
+    document.getElementById('btn-open-file').addEventListener('click', function () {
+      openCurrentFile();
+    });
+
+    // ==================================================================
+    // Message handler
+    // ==================================================================
+    window.addEventListener('message', function (e) {
+      var msg = e.data;
+      switch (msg.command) {
+        case 'renderDiff':
+          renderDiff(msg);
+          break;
+        case 'diffUpdated':
+          updateDiff(msg);
+          break;
+        case 'allProcessed':
+          document.getElementById('footer-text').textContent = 'All changes processed.';
+          document.getElementById('hunk-count').textContent = '';
+          updateToolbar(0);
+          disposeContentWidgets();
+          break;
+      }
+    });
+
+    // ==================================================================
+    // Theme sync via MutationObserver
+    // ==================================================================
+    var themeObserver = new MutationObserver(function () {
+      syncTheme();
+    });
+    themeObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
+    // ==================================================================
+    // Init
+    // ==================================================================
+    vscode.postMessage({ command: 'ready' });
+  </script>
+</body>
+</html>

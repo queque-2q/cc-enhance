@@ -4,59 +4,34 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
+$root = $PSScriptRoot | Split-Path -Parent
 
 Write-Host "=== CC Diff Package Builder ===" -ForegroundColor Cyan
 
 # 0. Update version if specified
 if ($Version) {
-    Write-Host "`nVersion parameter detected: $Version" -ForegroundColor Magenta
-    $totalSteps = 4
-} else {
-    $totalSteps = 3
-}
-
-# 1. Update version numbers
-if ($Version) {
-    Write-Host "`n[1/$totalSteps] Updating version to $Version..." -ForegroundColor Yellow
-
-    # Update extension package.json
-    $extPkgPath = Join-Path $root "vscode-extension\package.json"
-    $extPkg = Get-Content $extPkgPath -Raw | ConvertFrom-Json
-    $extPkg.version = $Version
-    $extPkg | ConvertTo-Json -Depth 10 | Set-Content $extPkgPath -Encoding UTF8
+    Write-Host "`nUpdating version to $Version..." -ForegroundColor Yellow
+    $pkgPath = Join-Path $root "package.json"
+    $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+    $pkg.version = $Version
+    $pkg | ConvertTo-Json -Depth 10 | Set-Content $pkgPath -Encoding UTF8
     Write-Host "  Updated package.json" -ForegroundColor Gray
-
-    # Update hooks package.json
-    $hooksPkgPath = Join-Path $root "vscode-extension\hooks\package.json"
-    $hooksPkg = Get-Content $hooksPkgPath -Raw | ConvertFrom-Json
-    $hooksPkg.version = $Version
-    $hooksPkg | ConvertTo-Json -Depth 10 | Set-Content $hooksPkgPath -Encoding UTF8
-    Write-Host "  Updated hooks/package.json" -ForegroundColor Gray
-
-    $stepNum = 2
+    $totalSteps = 2
 } else {
-    $stepNum = 1
+    $totalSteps = 1
 }
 
-# 2. Install extension dependencies
-Write-Host "`n[$stepNum/$totalSteps] Installing extension dependencies..." -ForegroundColor Yellow
-Push-Location "$root\vscode-extension"
-npm install
+# 1. Build (compile + copy webview)
+Write-Host "`n[$stepNum/$totalSteps] Building..." -ForegroundColor Yellow
+Push-Location $root
+npm run build
 Pop-Location
 $stepNum++
 
-# 3. Compile TypeScript
-Write-Host "`n[$stepNum/$totalSteps] Compiling TypeScript..." -ForegroundColor Yellow
-Push-Location "$root\vscode-extension"
-npx tsc -p ./
-Pop-Location
-$stepNum++
-
-# 4. Package VSIX
+# 2. Package VSIX
 Write-Host "`n[$stepNum/$totalSteps] Packaging VSIX..." -ForegroundColor Yellow
-Push-Location "$root\vscode-extension"
+Push-Location $root
 npx vsce package --allow-missing-repository
 Pop-Location
 
-Write-Host "`n=== Done! VSIX is in  ===" -ForegroundColor Green
+Write-Host "`n=== Done! ===" -ForegroundColor Green

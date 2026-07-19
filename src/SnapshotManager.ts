@@ -21,6 +21,7 @@ export interface TrackedFile {
   sessionId: string;
   timestamp: number;
   status: FileStatus;
+  branch?: string;
 }
 
 interface IndexEntryV2 {
@@ -29,6 +30,7 @@ interface IndexEntryV2 {
   sessionId: string;
   timestamp: number;
   status: string;
+  branch?: string;
 }
 
 interface IndexDataV2 {
@@ -90,6 +92,7 @@ export class SnapshotManager {
         sessionId: entry.sessionId,
         timestamp: entry.timestamp,
         status: entry.status as FileStatus,
+        branch: entry.branch,
       });
     }
 
@@ -161,6 +164,76 @@ export class SnapshotManager {
   }
 
   // ------------------------------------------------------------------
+  // Git branch helpers
+  // ------------------------------------------------------------------
+
+  /** Get the current git branch name, or null if not in a git repo. */
+  getCurrentGitBranch(): string | null {
+    if (!this.workspaceRoot) return null;
+
+    const tryGitBranch = (cwd: string): string | null => {
+      try {
+        return execSync('git rev-parse --abbrev-ref HEAD', {
+          cwd,
+          encoding: 'utf8',
+          stdio: 'pipe',
+          timeout: 5000,
+          windowsHide: true,
+        }).trim();
+      } catch {
+        return null;
+      }
+    };
+
+    // Try workspace root first
+    const branch = tryGitBranch(this.workspaceRoot);
+    if (branch) return branch;
+
+    // Fall back: try the directories of tracked files
+    for (const filePath of this.files.keys()) {
+      const absPath = path.resolve(this.workspaceRoot, filePath);
+      const fileDir = path.dirname(absPath);
+      const branch2 = tryGitBranch(fileDir);
+      if (branch2) return branch2;
+    }
+
+    return null;
+  }
+
+  /** Return tracked files whose branch differs from the given current branch. */
+  getMismatchedFiles(currentBranch: string): TrackedFile[] {
+    const mismatched: TrackedFile[] = [];
+    for (const file of this.files.values()) {
+      // Only compare if the entry has a branch recorded (legacy entries skip)
+      if (file.branch && file.branch !== currentBranch) {
+        mismatched.push(file);
+      }
+    }
+    return mismatched;
+  }
+
+  /**
+   * Remove a single tracked file: delete snapshot, remove from index,
+   * and remove from in-memory map. Safe to call multiple times.
+   */
+  removeTrackedFile(filePath: string): void {
+    const entry = this.getFileEntry(filePath);
+    if (!entry) return;
+
+    // Delete snapshot file
+    const snapPath = this.getSnapshotPath(filePath);
+    try { if (fs.existsSync(snapPath)) fs.unlinkSync(snapPath); } catch {}
+
+    // Remove from index.json
+    this.removeFromIndex(filePath);
+
+    // Remove from in-memory map
+    this.files.delete(entry.file);
+
+    this.logger(`[removeTrackedFile] "${filePath}" — cleaned up`);
+  }
+
+  // ------------------------------------------------------------------
   // Diff computation
   // ------------------------------------------------------------------
 
@@ -169,15 +242,15 @@ export class SnapshotManager {
    * Returns parsed hunks ready for the diff panel.
    */
   computeDiff(filePath: string, workspaceRoot: string): HunkData[] {
-    const snapshotContent = this.getSnapshotContent(filePath);
-    if (snapshotContent === null) return [];
+    // Treat missing snapshot as empty (file creation scenario)
+    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
 
     const absPath = path.resolve(workspaceRoot, filePath);
     let currentContent = '';
     try {
       currentContent = fs.readFileSync(absPath, 'utf8');
     } catch {
-      // File doesn't exist — treat as empty
+      // File doesn't exist — treat as empty (file deletion scenario)
     }
 
     if (snapshotContent === currentContent) return [];
@@ -206,7 +279,7 @@ export class SnapshotManager {
       let stdout: string;
       try {
         stdout = execSync(
-          `git diff --no-index --no-color -U3 "a/${posixPath}" "b/${posixPath}"`,
+          `git diff --no-index --no-color -U0 "a/${posixPath}" "b/${posixPath}"`,
           { encoding: 'utf8', stdio: 'pipe', timeout: 10000, cwd: tmpDir, windowsHide: true }
         );
       } catch (e: any) {
@@ -293,9 +366,15 @@ export class SnapshotManager {
       const patchFile = path.join(tmpDir, 'hunk.patch');
       fs.writeFileSync(patchFile, fullPatch, 'utf8');
 
+      // Debug: log the patch being applied
+      this.logger(`[applyHunkToContent] reverse=${reverse} file="${relativeFile}"`);
+      this.logger(`[applyHunkToContent] content length: ${content.length}`);
+      this.logger(`[applyHunkToContent] patch (${fullPatch.length} bytes):\n${fullPatch}`);
+
       const cmd = reverse
-        ? `git apply --reverse "${patchFile}"`
-        : `git apply "${patchFile}"`;
+        ? `git apply --unidiff-zero --reverse "${patchFile}"`
+        : `git apply --unidiff-zero "${patchFile}"`;
+      this.logger(`[applyHunkToContent] cmd: ${cmd}`);
       execSync(cmd, {
         cwd: tmpDir,
         stdio: 'pipe',
@@ -304,9 +383,11 @@ export class SnapshotManager {
       });
 
       const resultContent = fs.readFileSync(tmpFile, 'utf8');
+      this.logger(`[applyHunkToContent] SUCCESS — result content length: ${resultContent.length}`);
       return { success: true, content: resultContent };
     } catch (e: any) {
       const stderr = e.stderr?.toString() || e.message || 'Unknown git error';
+      this.logger(`[applyHunkToContent] FAILED — ${stderr}`);
       return { success: false, error: stderr };
     } finally {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -326,8 +407,8 @@ export class SnapshotManager {
     if (!entry) return { success: false, error: 'File not tracked' };
 
     const snapPath = this.getSnapshotPath(filePath);
-    const currentContent = this.getSnapshotContent(filePath);
-    if (currentContent === null) return { success: false, error: 'Snapshot not found' };
+    // Treat missing snapshot as empty (file creation scenario)
+    const currentContent = this.getSnapshotContent(filePath) ?? '';
 
     // Forward-apply hunk to snapshot content
     const result = this.applyHunkToContent(currentContent, filePath, hunk.patch, /* reverse */ false);
@@ -336,8 +417,11 @@ export class SnapshotManager {
       return { success: false, error: result.error };
     }
 
-    // Write updated snapshot
-    fs.writeFileSync(snapPath, result.content!, 'utf8');
+    // Write updated snapshot (create snapshots dir if needed)
+    if (snapPath) {
+      fs.mkdirSync(path.dirname(snapPath), { recursive: true });
+      fs.writeFileSync(snapPath, result.content!, 'utf8');
+    }
 
     // Check if all changes are now accepted (snapshot matches current file)
     const absPath = path.resolve(workspaceRoot, filePath);
@@ -348,7 +432,7 @@ export class SnapshotManager {
       // All changes accepted — clean up
       this.removeFromIndex(filePath);
       this.files.delete(entry.file);
-      try { fs.unlinkSync(snapPath); } catch {}
+      try { if (snapPath) fs.unlinkSync(snapPath); } catch {}
       this.logger(`[acceptHunk] "${filePath}" — all changes accepted, cleaned up`);
     }
 
@@ -365,13 +449,13 @@ export class SnapshotManager {
     if (!entry) return { success: false, error: 'File not tracked' };
 
     const absPath = path.resolve(workspaceRoot, filePath);
-    if (!fs.existsSync(absPath)) return { success: false, error: 'File not found' };
 
+    // Read current file content — empty if file doesn't exist (deletion scenario)
     let currentContent: string;
     try {
       currentContent = fs.readFileSync(absPath, 'utf8');
     } catch {
-      return { success: false, error: 'Cannot read file' };
+      currentContent = '';
     }
 
     // Reverse-apply hunk to current file content
@@ -382,11 +466,19 @@ export class SnapshotManager {
     }
 
     // Write reverted content back to workspace file
-    fs.writeFileSync(absPath, result.content!, 'utf8');
+    const revertedContent = result.content!;
+    if (revertedContent === '') {
+      // Result is empty — delete the file (creation was fully denied)
+      try { fs.unlinkSync(absPath); } catch { /* file already gone */ }
+    } else {
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, revertedContent, 'utf8');
+    }
 
     // Check if all changes are now denied (snapshot matches current file)
-    const snapshotContent = this.getSnapshotContent(filePath);
-    if (snapshotContent === result.content) {
+    // Treat missing snapshot as empty (file creation scenario)
+    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
+    if (snapshotContent === revertedContent) {
       // All changes reverted — clean up
       this.removeFromIndex(filePath);
       this.files.delete(entry.file);
@@ -424,14 +516,34 @@ export class SnapshotManager {
     const entry = this.getFileEntry(filePath);
     if (!entry) return { success: false, error: 'File not tracked' };
 
-    const snapshotContent = this.getSnapshotContent(filePath);
-    if (snapshotContent === null) return { success: false, error: 'Snapshot not found' };
+    // Treat missing snapshot as empty (file creation scenario)
+    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
 
     const absPath = path.resolve(workspaceRoot, filePath);
-    try {
-      fs.writeFileSync(absPath, snapshotContent, 'utf8');
-    } catch (e: any) {
-      return { success: false, error: e.message };
+
+    if (snapshotContent === '' && !fs.existsSync(absPath)) {
+      // Both sides empty — nothing to do, just clean up
+      this.removeFromIndex(filePath);
+      this.files.delete(entry.file);
+      this.logger(`[denyAll] "${filePath}" — nothing to revert, cleaned up`);
+      return { success: true };
+    }
+
+    if (snapshotContent === '') {
+      // File was newly created — deny means delete the file
+      try {
+        fs.unlinkSync(absPath);
+      } catch (e: any) {
+        return { success: false, error: `Cannot delete file: ${e.message}` };
+      }
+    } else {
+      // Normal revert: overwrite current file with snapshot content
+      try {
+        fs.mkdirSync(path.dirname(absPath), { recursive: true });
+        fs.writeFileSync(absPath, snapshotContent, 'utf8');
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
     }
 
     // Clean up

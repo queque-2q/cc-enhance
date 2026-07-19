@@ -14,6 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const child_process = require('child_process');
 
 /** Normalize any path to POSIX (forward slashes) for cross-platform storage. */
 const toPosix = (p) => p.replace(/\\/g, '/');
@@ -97,6 +98,22 @@ async function main() {
     // Resolve absolute path
     const absPath = path.resolve(workspaceRoot, filePath);
 
+    // Get current git branch — use the file's directory so git can
+    // find .git in a parent directory even when workspaceRoot is not a repo.
+    let branch = null;
+    try {
+      const fileDir = path.dirname(absPath);
+      branch = child_process.execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: fileDir,
+        encoding: 'utf8',
+        stdio: 'pipe',
+        timeout: 5000,
+        windowsHide: true,
+      }).trim();
+    } catch {
+      // File is not in a git repo — no branch info
+    }
+
     // Compute POSIX relative path for index key
     const posixRoot = toPosix(workspaceRoot);
     const posixAbsPath = toPosix(absPath);
@@ -136,13 +153,17 @@ async function main() {
     // Check if already registered (same file path)
     const existing = index.files.find(f => f.file === relativePath);
     if (!existing) {
-      index.files.push({
+      const newEntry = {
         file: relativePath,
         snapshotFile: safeFile + '.snap',
         sessionId: session_id,
         timestamp: Date.now(),
         status: 'pending',
-      });
+      };
+      if (branch) {
+        newEntry.branch = branch;
+      }
+      index.files.push(newEntry);
       writeIndex(indexPath, index);
     }
 

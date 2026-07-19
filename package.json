@@ -42,8 +42,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "tsc -p ./",
+    "vscode:prepublish": "npm run build",
     "compile": "tsc -p ./",
+    "copy-webview": "node scripts/copy-webview.js",
+    "build": "npm run compile && npm run copy-webview",
     "watch": "tsc -watch -p ./",
     "package": "vsce package"
   },
@@ -51,7 +53,7 @@
     "@types/node": "^26.1.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
+    "monaco-editor": "^0.45.0",
     "typescript": "^5.3.0"
-  },
-  "dependencies": {}
+  }
 }
