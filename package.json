@@ -20,8 +20,58 @@
         "command": "cc-diff.setupHooks",
         "title": "安装 Hook 脚本",
         "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.acceptAllFileEditor",
+        "title": "Accept All",
+        "icon": "$(check-all)",
+        "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.denyAllFileEditor",
+        "title": "Deny All",
+        "icon": "$(close-all)",
+        "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.prevHunk",
+        "title": "Previous Hunk",
+        "icon": "$(arrow-up)",
+        "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.nextHunk",
+        "title": "Next Hunk",
+        "icon": "$(arrow-down)",
+        "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.toggleDiffMode",
+        "title": "Toggle Diff Mode",
+        "icon": "$(split-horizontal)",
+        "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.openCurrentFile",
+        "title": "Open File",
+        "icon": "$(go-to-file)",
+        "category": "CC Diff"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "cc-diff.toggleDiffMode",
+          "when": "activeWebviewPanelId == cc-diff.monacoDiff",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cc-diff.openCurrentFile",
+          "when": "activeWebviewPanelId == cc-diff.monacoDiff",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {

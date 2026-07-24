@@ -41,6 +41,11 @@ export class MonacoDiffProvider {
     this._outputChannel = outputChannel;
   }
 
+  /** Expose current file for editor/title commands */
+  get currentFile(): string {
+    return this._currentFile;
+  }
+
   // ------------------------------------------------------------------
   // Public API
   // ------------------------------------------------------------------
@@ -161,6 +166,24 @@ export class MonacoDiffProvider {
     }
     this._currentFile = '';
     this._currentHunks = [];
+  }
+
+  /** Navigate to previous/next hunk in the webview */
+  navigateHunk(direction: 'prev' | 'next'): void {
+    if (!this._panel) return;
+    this._panel.webview.postMessage({ command: 'navigateHunk', direction });
+  }
+
+  /** Toggle between side-by-side and inline diff mode */
+  toggleMode(): void {
+    if (!this._panel) return;
+    this._panel.webview.postMessage({ command: 'toggleMode' });
+  }
+
+  /** Ask webview for current cursor position, then open file at that line */
+  openCurrentFile(): void {
+    if (!this._panel || !this._currentFile) return;
+    this._panel.webview.postMessage({ command: 'openCurrentFile' });
   }
 
   // ------------------------------------------------------------------

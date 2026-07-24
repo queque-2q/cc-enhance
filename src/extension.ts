@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { SnapshotManager } from './SnapshotManager';
@@ -11,6 +12,10 @@ let diffEditorManager: MonacoDiffProvider;
 let hooksManager: HooksManager;
 let fileWatcher: vscode.FileSystemWatcher | undefined;
 let notifyWatcher: vscode.FileSystemWatcher | undefined;
+let branchCleanupWatcher: vscode.FileSystemWatcher | undefined;
+// Suppress repeated branch-cleanup prompts after user dismisses.
+// Cleared when the branch changes again (so the prompt re-appears).
+let suppressedBranchCleanup: string | null = null;
 let outputChannel: vscode.OutputChannel;
 
 function log(msg: string): void {
@@ -114,6 +119,25 @@ export function activate(context: vscode.ExtensionContext): void {
     handleNotifySignal(workspaceRoot);
   });
 
+  // ── File watcher: branch-cleanup signal ──
+  const branchCleanupPattern = new vscode.RelativePattern(
+    workspaceFolders[0],
+    '.claude/cc-diff/branch-cleanup'
+  );
+
+  branchCleanupWatcher = vscode.workspace.createFileSystemWatcher(branchCleanupPattern, false, false, false);
+  context.subscriptions.push(branchCleanupWatcher);
+
+  branchCleanupWatcher.onDidCreate((uri) => {
+    log(`BranchCleanupWatcher: signal created — ${uri.fsPath}`);
+    handleBranchCleanupSignal(workspaceRoot);
+  });
+
+  branchCleanupWatcher.onDidChange((uri) => {
+    log(`BranchCleanupWatcher: signal changed — ${uri.fsPath}`);
+    handleBranchCleanupSignal(workspaceRoot);
+  });
+
   // ── Status bar ──
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -169,6 +193,55 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // ── Editor/title commands (Monaco diff panel) ──
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.acceptAllFileEditor', async () => {
+      const file = diffEditorManager.currentFile;
+      if (!file) return;
+      log(`Command: acceptAllFileEditor — file="${file}"`);
+      await diffEditorManager.acceptAll(file);
+      webviewProvider.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.denyAllFileEditor', async () => {
+      const file = diffEditorManager.currentFile;
+      if (!file) return;
+      log(`Command: denyAllFileEditor — file="${file}"`);
+      await diffEditorManager.denyAll(file);
+      webviewProvider.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.prevHunk', () => {
+      log('Command: prevHunk');
+      diffEditorManager.navigateHunk('prev');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.nextHunk', () => {
+      log('Command: nextHunk');
+      diffEditorManager.navigateHunk('next');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.toggleDiffMode', () => {
+      log('Command: toggleDiffMode');
+      diffEditorManager.toggleMode();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.openCurrentFile', () => {
+      log('Command: openCurrentFile');
+      diffEditorManager.openCurrentFile();
+    })
+  );
+
   log('Activation complete.');
 }
 
@@ -185,6 +258,72 @@ function handleNotifySignal(workspaceRoot: string): void {
   }
 }
 
+/**
+ * Handle the branch-cleanup signal from pre-tool-use.js.
+ * Shows a non-modal prompt to clean up snapshots from a different branch.
+ */
+async function handleBranchCleanupSignal(workspaceRoot: string): Promise<void> {
+  const ccDiffDir = path.join(workspaceRoot, '.claude', 'cc-diff');
+  const signalPath = path.join(ccDiffDir, 'branch-cleanup');
+
+  // Reload to get current state
+  snapshotManager.loadFiles(workspaceRoot);
+
+  const currentBranch = snapshotManager.getCurrentGitBranch();
+  if (!currentBranch) {
+    // Not a git repo — clean up signal and bail
+    try { fs.unlinkSync(signalPath); } catch {}
+    return;
+  }
+
+  // Suppress if user already dismissed for this exact branch
+  if (suppressedBranchCleanup === currentBranch) {
+    log(`BranchCleanupWatcher: suppressed for branch "${currentBranch}" — skipping`);
+    try { fs.unlinkSync(signalPath); } catch {}
+    return;
+  }
+
+  // Branch changed since last suppression → re-enable prompt
+  if (suppressedBranchCleanup !== null && suppressedBranchCleanup !== currentBranch) {
+    log(`BranchCleanupWatcher: branch changed from "${suppressedBranchCleanup}" to "${currentBranch}" — re-enabling`);
+    suppressedBranchCleanup = null;
+  }
+
+  const mismatched = snapshotManager.getMismatchedFiles(currentBranch);
+  if (mismatched.length === 0) {
+    // No mismatch anymore (maybe already cleaned) — remove signal
+    try { fs.unlinkSync(signalPath); } catch {}
+    return;
+  }
+
+  const branches = [...new Set(mismatched.map(f => f.branch).filter(Boolean))];
+  const branchList = branches.join(', ');
+  const fileList = mismatched.map(f => f.file).join('\n');
+
+  const answer = await vscode.window.showWarningMessage(
+    `检测到 Git 分支已切换（当前: \`${currentBranch}\`，快照所属: \`${branchList}\`）。\n\n` +
+    `${mismatched.length} 个文件的快照属于其他分支，是否清理？\n\n${fileList}`,
+    '清理',
+    '取消'
+  );
+
+  if (answer === '清理') {
+    for (const f of mismatched) {
+      snapshotManager.removeTrackedFile(f.file);
+    }
+    log(`BranchCleanupWatcher: cleaned up ${mismatched.length} file(s) from branch(es) ${branchList}`);
+    suppressedBranchCleanup = null;
+    webviewProvider.refresh();
+  } else {
+    // User dismissed — suppress for this branch until it changes again
+    suppressedBranchCleanup = currentBranch;
+    log(`BranchCleanupWatcher: user dismissed — suppressing for branch "${currentBranch}"`);
+  }
+
+  // Always remove the signal file so future mismatches can re-trigger
+  try { fs.unlinkSync(signalPath); } catch {}
+}
+
 export function deactivate(): void {
   log('Extension deactivated.');
   if (fileWatcher) {
@@ -192,5 +331,8 @@ export function deactivate(): void {
   }
   if (notifyWatcher) {
     notifyWatcher.dispose();
+  }
+  if (branchCleanupWatcher) {
+    branchCleanupWatcher.dispose();
   }
 }

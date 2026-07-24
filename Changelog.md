@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2
+
+TODO
+
+- 用editor/title 菜单项替换monaco diff页面按钮
+- claude code rewind冲突，怎么解决？
+
+DONE
+
+- git分支切换优化
+
 ## 0.1.1
 
 - diff webview支持语法高亮

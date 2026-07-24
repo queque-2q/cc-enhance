@@ -168,6 +168,28 @@ async function main() {
     }
 
     console.log(JSON.stringify({ systemMessage: 'snapshot saved' }));
+
+    // ── Branch mismatch check ──────────────────────────────────────
+    // After saving, check if any existing snapshots belong to a different
+    // branch. If so, write a signal file so the VSCode extension can
+    // prompt the user to clean up stale snapshots.
+    if (branch) {
+      const mismatched = index.files.filter(f => f.branch && f.branch !== branch);
+      if (mismatched.length > 0) {
+        const cleanupSignalPath = path.join(ccDiffRoot, 'branch-cleanup');
+        if (!fs.existsSync(cleanupSignalPath)) {
+          const signalData = {
+            currentBranch: branch,
+            mismatchedBranches: [...new Set(mismatched.map(f => f.branch).filter(Boolean))],
+            mismatchedCount: mismatched.length,
+            timestamp: Date.now(),
+          };
+          try {
+            fs.writeFileSync(cleanupSignalPath, JSON.stringify(signalData, null, 2), 'utf8');
+          } catch {}
+        }
+      }
+    }
   } catch (err) {
     console.error('[cc-diff pre-tool-use]', err.message);
   }

@@ -186,22 +186,14 @@
   <!-- Toolbar -->
   <div class="toolbar" id="toolbar">
     <span class="toolbar-filename" id="filename">CC Diff</span>
-    <span style="font-size:10px;color:var(--muted)" id="hunk-count"></span>
-    <div class="btn-group">
-      <button class="btn btn-mode active" id="btn-sidebyside" title="Side-by-side view">Side-by-side</button>
-      <button class="btn btn-mode" id="btn-inline" title="Inline view">Inline</button>
+    <span style="font-size:10px;color:var(--muted);margin-left:auto" id="hunk-pos">-</span>
+    <div class="btn-group" id="nav-group">
+      <button class="btn btn-nav" id="btn-prev-hunk" title="Previous Hunk">◀</button>
+      <button class="btn btn-nav" id="btn-next-hunk" title="Next Hunk">▶</button>
     </div>
     <div class="btn-group">
       <button class="btn btn-accept" id="btn-accept-all">Accept All</button>
       <button class="btn btn-deny" id="btn-deny-all">Deny All</button>
-    </div>
-    <div class="btn-group" id="nav-group">
-      <button class="btn btn-nav" id="btn-prev-hunk" title="Previous Hunk" disabled>◀</button>
-      <span style="font-size:10px;color:var(--muted);min-width:48px;text-align:center" id="hunk-pos">-</span>
-      <button class="btn btn-nav" id="btn-next-hunk" title="Next Hunk">▶</button>
-    </div>
-    <div class="btn-group">
-      <button class="btn btn-file" id="btn-open-file" title="Open current file at this position">Open File</button>
     </div>
   </div>
 
@@ -729,8 +721,6 @@
     // UI helpers
     // ==================================================================
     function updateToolbar(hunkCount) {
-      document.getElementById('hunk-count').textContent =
-        hunkCount > 0 ? hunkCount + ' hunk(s)' : '';
       updateNavButtons();
     }
 
@@ -744,27 +734,17 @@
         var wasForced = forcedInline;
 
         if (width > 0 && width < SIDE_BY_SIDE_MIN_WIDTH) {
-          // Too narrow — force inline
           forcedInline = true;
           if (state.diffEditor) {
             state.diffEditor.updateOptions({ renderSideBySide: false });
           }
-          document.getElementById('btn-sidebyside').disabled = true;
-          document.getElementById('btn-sidebyside').title = 'Side-by-side (disabled — editor too narrow)';
-          document.getElementById('btn-inline').classList.add('active');
-          document.getElementById('btn-sidebyside').classList.remove('active');
         } else if (wasForced && width >= SIDE_BY_SIDE_MIN_WIDTH) {
-          // Wide enough again — restore user's chosen mode
           forcedInline = false;
           if (state.diffEditor) {
             state.diffEditor.updateOptions({
               renderSideBySide: state.mode === 'side-by-side'
             });
           }
-          document.getElementById('btn-sidebyside').disabled = false;
-          document.getElementById('btn-sidebyside').title = 'Side-by-side view';
-          document.getElementById('btn-sidebyside').classList.toggle('active', state.mode === 'side-by-side');
-          document.getElementById('btn-inline').classList.toggle('active', state.mode === 'inline');
         }
       });
       ro.observe(container);
@@ -782,9 +762,6 @@
           renderSideBySide: mode === 'side-by-side'
         });
       }
-      // Update active button
-      document.getElementById('btn-sidebyside').classList.toggle('active', mode === 'side-by-side');
-      document.getElementById('btn-inline').classList.toggle('active', mode === 'inline');
 
       vscode.postMessage({ command: 'switchMode', mode: mode });
     }
@@ -792,26 +769,17 @@
     // ==================================================================
     // Toolbar events
     // ==================================================================
-    document.getElementById('btn-sidebyside').addEventListener('click', function () {
-      setMode('side-by-side');
-    });
-    document.getElementById('btn-inline').addEventListener('click', function () {
-      setMode('inline');
-    });
-    document.getElementById('btn-accept-all').addEventListener('click', function () {
-      vscode.postMessage({ command: 'acceptAll' });
-    });
-    document.getElementById('btn-deny-all').addEventListener('click', function () {
-      vscode.postMessage({ command: 'denyAll' });
-    });
     document.getElementById('btn-prev-hunk').addEventListener('click', function () {
       navigateHunk('prev');
     });
     document.getElementById('btn-next-hunk').addEventListener('click', function () {
       navigateHunk('next');
     });
-    document.getElementById('btn-open-file').addEventListener('click', function () {
-      openCurrentFile();
+    document.getElementById('btn-accept-all').addEventListener('click', function () {
+      vscode.postMessage({ command: 'acceptAll' });
+    });
+    document.getElementById('btn-deny-all').addEventListener('click', function () {
+      vscode.postMessage({ command: 'denyAll' });
     });
 
     // ==================================================================
@@ -828,9 +796,17 @@
           break;
         case 'allProcessed':
           document.getElementById('footer-text').textContent = 'All changes processed.';
-          document.getElementById('hunk-count').textContent = '';
-          updateToolbar(0);
+          document.getElementById('hunk-pos').textContent = '-';
           disposeContentWidgets();
+          break;
+        case 'navigateHunk':
+          navigateHunk(msg.direction);
+          break;
+        case 'toggleMode':
+          setMode(state.mode === 'side-by-side' ? 'inline' : 'side-by-side');
+          break;
+        case 'openCurrentFile':
+          openCurrentFile();
           break;
       }
     });
