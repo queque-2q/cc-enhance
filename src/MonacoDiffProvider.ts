@@ -73,7 +73,7 @@ export class MonacoDiffProvider {
     const hunks = this._snapshotManager.computeDiff(filePath, this._workspaceRoot);
     if (hunks.length === 0) {
       vscode.window.showInformationMessage(
-        `CC Diff: No changes to display for "${filePath}".`
+        vscode.l10n.t('CC Diff: No changes to display for "{0}".', filePath)
       );
       return;
     }
@@ -144,7 +144,7 @@ export class MonacoDiffProvider {
     const result = this._snapshotManager.denyAll(filePath, this._workspaceRoot);
     if (!result.success) {
       vscode.window.showErrorMessage(
-        `CC Diff: Failed to revert "${filePath}" — ${result.error}`
+        vscode.l10n.t('CC Diff: Failed to revert "{0}" — {1}', filePath, result.error || '')
       );
       return;
     }
@@ -208,7 +208,7 @@ export class MonacoDiffProvider {
         );
         if (!result.success) {
           vscode.window.showErrorMessage(
-            `CC Diff: Failed to accept hunk — ${result.error}`
+            vscode.l10n.t('CC Diff: Failed to accept hunk — {0}', result.error || '')
           );
           return;
         }
@@ -227,7 +227,7 @@ export class MonacoDiffProvider {
         );
         if (!result.success) {
           vscode.window.showErrorMessage(
-            `CC Diff: Failed to deny hunk — ${result.error}`
+            vscode.l10n.t('CC Diff: Failed to deny hunk — {0}', result.error || '')
           );
           return;
         }
@@ -269,7 +269,7 @@ export class MonacoDiffProvider {
           editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
         } catch (err) {
           vscode.window.showErrorMessage(
-            `CC Diff: Failed to open "${msg.file}" — ${err}`
+            vscode.l10n.t('CC Diff: Failed to open "{0}" — {1}', msg.file || '', String(err))
           );
         }
         break;
@@ -335,6 +335,20 @@ export class MonacoDiffProvider {
     });
   }
 
+  private buildI18nScript(): string {
+    const strings: Record<string, string> = {
+      '@@locale': vscode.env.language,
+      loading: vscode.l10n.t('Loading diff editor...'),
+      acceptAll: vscode.l10n.t('Accept All'),
+      denyAll: vscode.l10n.t('Deny All'),
+      accept: vscode.l10n.t('Accept'),
+      deny: vscode.l10n.t('Deny'),
+      hunksRemaining: vscode.l10n.t('hunk(s) remaining'),
+      allProcessed: vscode.l10n.t('All changes processed.'),
+    };
+    return `<script>window.__i18n=${JSON.stringify(strings)};</script>`;
+  }
+
   /** Read the monaco-diff.html template and inject webview URIs */
   private _readTemplate(): string {
     const templatePath = this._resolveTemplatePath();
@@ -342,10 +356,11 @@ export class MonacoDiffProvider {
     if (templatePath && fs.existsSync(templatePath)) {
       template = fs.readFileSync(templatePath, 'utf8');
     } else {
-      return `<!DOCTYPE html><html><body><p>Error: Monaco diff template not found.</p></body></html>`;
+      return `<!DOCTYPE html><html><body><p>${vscode.l10n.t('Error: Monaco diff template not found.')}</p></body></html>`;
     }
 
     // Inject webview URIs for the Monaco loader and base
+    template = template.replace('</head>', this.buildI18nScript() + '\n</head>');
     const loaderUri = this._panel!.webview.asWebviewUri(
       vscode.Uri.file(path.join(__dirname, 'webview', 'vs', 'loader.js'))
     );

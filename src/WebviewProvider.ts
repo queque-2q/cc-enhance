@@ -74,6 +74,18 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
       const entry = this._snapshotManager.getFileEntry(file);
       if (!entry) continue;
 
+      // Compatibility: if both snapshot (or empty snapshot) and workspace
+      // file are missing, remove the stale entry from the list.
+      const snapshotContent = this._snapshotManager.getSnapshotContent(file);
+      const snapshotExists = snapshotContent !== null && snapshotContent !== '';
+      const workspacePath = path.resolve(this._workspaceRoot, file);
+      const workspaceExists = fs.existsSync(workspacePath);
+
+      if (!snapshotExists && !workspaceExists) {
+        this._snapshotManager.removeTrackedFile(file);
+        continue;
+      }
+
       summaries.push({
         file: entry.file,
         sessionId: entry.sessionId,
@@ -114,14 +126,17 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
     const branchList = branches.join(', ');
     const fileList = mismatched.map(f => f.file).join('\n');
 
+    const cleanUpLabel = vscode.l10n.t('Clean Up');
     const answer = await vscode.window.showWarningMessage(
-      `检测到 Git 分支已切换（当前: \`${currentBranch}\`，快照所属: \`${branchList}\`）。\n\n` +
-      `${mismatched.length} 个文件的快照属于其他分支，是否清理？\n\n${fileList}`,
+      vscode.l10n.t(
+        'Detected Git branch switch (current: `{0}`, snapshot belongs to: `{1}`).\n\n{2} file(s) from other branch — clean up?\n\n{3}',
+        currentBranch, branchList, mismatched.length, fileList
+      ),
       { modal: true },
-      '清理'
+      cleanUpLabel
     );
 
-    if (answer === '清理') {
+    if (answer === cleanUpLabel) {
       for (const f of mismatched) {
         this._snapshotManager.removeTrackedFile(f.file);
       }
@@ -160,7 +175,9 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
         } else {
           const result = this._snapshotManager.denyAll(file, this._workspaceRoot);
           if (!result.success) {
-            vscode.window.showErrorMessage(`CC Diff: Failed to revert "${file}" — ${result.error}`);
+            vscode.window.showErrorMessage(
+              vscode.l10n.t('CC Diff: Failed to revert "{0}" — {1}', file, result.error || '')
+            );
           }
         }
         this.refresh();
@@ -168,12 +185,13 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'acceptAll': {
+        const acceptAllLabel = vscode.l10n.t('Accept All');
         const answer = await vscode.window.showInformationMessage(
-          'Accept all changes in all files?',
+          vscode.l10n.t('Accept all changes in all files?'),
           { modal: true },
-          'Accept All'
+          acceptAllLabel
         );
-        if (answer === 'Accept All') {
+        if (answer === acceptAllLabel) {
           for (const f of this._snapshotManager.getAllFiles()) {
             this._snapshotManager.acceptAll(f);
           }
@@ -183,12 +201,13 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'denyAll': {
+        const denyAllLabel = vscode.l10n.t('Deny All');
         const answer = await vscode.window.showInformationMessage(
-          'Deny (revert) all changes in all files? This will undo all modifications.',
+          vscode.l10n.t('Deny (revert) all changes in all files? This will undo all modifications.'),
           { modal: true },
-          'Deny All'
+          denyAllLabel
         );
-        if (answer === 'Deny All') {
+        if (answer === denyAllLabel) {
           const files = [...this._snapshotManager.getAllFiles()]; // copy before iterating
           const errors: string[] = [];
           for (const f of files) {
@@ -199,7 +218,7 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
           }
           if (errors.length > 0) {
             vscode.window.showErrorMessage(
-              `CC Diff: ${errors.length}/${files.length} file(s) failed to revert:\n${errors.join('\n')}`
+              vscode.l10n.t('CC Diff: {0}/{1} file(s) failed to revert:\n{2}', errors.length, files.length, errors.join('\n'))
             );
           }
           this.refresh();
@@ -218,15 +237,31 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
   // HTML generation
   // ------------------------------------------------------------------
 
+  private buildI18nScript(): string {
+    const strings: Record<string, string> = {
+      '@@locale': vscode.env.language,
+      noChanges: vscode.l10n.t('No changes to review'),
+      noChangesDesc: vscode.l10n.t('File diffs from Claude Code sessions appear here after each conversation.'),
+      accept: vscode.l10n.t('Accept'),
+      deny: vscode.l10n.t('Deny'),
+      acceptAll: vscode.l10n.t('Accept All'),
+      denyAll: vscode.l10n.t('Deny All'),
+      reviewed: vscode.l10n.t('reviewed'),
+      session: vscode.l10n.t('session'),
+    };
+    return `<script>window.__i18n=${JSON.stringify(strings)};</script>`;
+  }
+
   private buildHtml(initialFiles?: FileSummary[]): string {
     const initialJson = JSON.stringify(initialFiles || []);
     try {
       const templatePath = this.resolveTemplatePath();
       let html = fs.readFileSync(templatePath, 'utf8');
+      html = html.replace('</head>', this.buildI18nScript() + '\n</head>');
       return html.replace('__INITIAL_FILES__', initialJson);
     } catch (error) {
       this._outputChannel.appendLine(`[ERROR] Failed to load webview template: ${error}`);
-      return `<!DOCTYPE html><html><body><pre>Failed to load webview template.</pre></body></html>`;
+      return `<!DOCTYPE html><html><body><pre>${vscode.l10n.t('Failed to load webview template.')}</pre></body></html>`;
     }
   }
 

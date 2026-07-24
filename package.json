@@ -1,8 +1,9 @@
 {
   "name": "cc-diff",
-  "displayName": "CC Diff",
-  "description": "Show file diffs after Claude Code conversations with Accept/Deny controls",
-  "version": "1.0.0",
+  "displayName": "%cc-diff.displayName%",
+  "description": "%cc-diff.description%",
+  "version": "0.1.2",
+  "icon": "media/icon.png",
   "publisher": "cc-diff",
   "engines": {
     "vscode": "^1.85.0"
@@ -18,42 +19,42 @@
     "commands": [
       {
         "command": "cc-diff.setupHooks",
-        "title": "安装 Hook 脚本",
+        "title": "%cc-diff.command.setupHooks%",
         "category": "CC Diff"
       },
       {
         "command": "cc-diff.acceptAllFileEditor",
-        "title": "Accept All",
+        "title": "%cc-diff.command.acceptAllFileEditor%",
         "icon": "$(check-all)",
         "category": "CC Diff"
       },
       {
         "command": "cc-diff.denyAllFileEditor",
-        "title": "Deny All",
+        "title": "%cc-diff.command.denyAllFileEditor%",
         "icon": "$(close-all)",
         "category": "CC Diff"
       },
       {
         "command": "cc-diff.prevHunk",
-        "title": "Previous Hunk",
+        "title": "%cc-diff.command.prevHunk%",
         "icon": "$(arrow-up)",
         "category": "CC Diff"
       },
       {
         "command": "cc-diff.nextHunk",
-        "title": "Next Hunk",
+        "title": "%cc-diff.command.nextHunk%",
         "icon": "$(arrow-down)",
         "category": "CC Diff"
       },
       {
         "command": "cc-diff.toggleDiffMode",
-        "title": "Toggle Diff Mode",
+        "title": "%cc-diff.command.toggleDiffMode%",
         "icon": "$(split-horizontal)",
         "category": "CC Diff"
       },
       {
         "command": "cc-diff.openCurrentFile",
-        "title": "Open File",
+        "title": "%cc-diff.command.openCurrentFile%",
         "icon": "$(go-to-file)",
         "category": "CC Diff"
       }
@@ -76,7 +77,7 @@
       "activitybar": [
         {
           "id": "cc-diff-sidebar",
-          "title": "CC Diff",
+          "title": "%cc-diff.viewContainer.title%",
           "icon": "$(diff)"
         }
       ]
@@ -86,7 +87,7 @@
         {
           "type": "webview",
           "id": "cc-diff.view",
-          "name": "Changes"
+          "name": "%cc-diff.view.name%"
         }
       ]
     }

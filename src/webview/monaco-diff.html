@@ -200,7 +200,7 @@
   <!-- Monaco diff editor -->
   <div id="editor-container">
     <div class="overlay" id="loading-overlay">
-      <span class="overlay-text">Loading diff editor...</span>
+      <span class="overlay-text" id="loading-text"></span>
     </div>
   </div>
 
@@ -220,6 +220,14 @@
     } catch (e) {
       vscode = { postMessage: function(m) { console.log('postMessage:', m); } };
     }
+
+    function t(key, fallback) {
+      var i18n = window.__i18n || {};
+      return i18n[key] || fallback || key;
+    }
+
+    // Set initial i18n text for static elements
+    document.getElementById('loading-text').textContent = t('loading', 'Loading diff editor...');
 
     // ==================================================================
     // State
@@ -266,6 +274,10 @@
     require(['vs/editor/editor.main'], function () {
       MONACO_LOADED = true;
       hideLoading();
+
+      // Set toolbar button text
+      document.getElementById('btn-accept-all').textContent = t('acceptAll', 'Accept All');
+      document.getElementById('btn-deny-all').textContent = t('denyAll', 'Deny All');
 
       // If renderDiff arrived before Monaco loaded, render now
       if (state._pendingRender) {
@@ -452,7 +464,7 @@
 
       // Update footer
       document.getElementById('footer-text').textContent =
-        data.hunks.length + ' hunk(s) remaining';
+        data.hunks.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
 
       // Set cursor to first hunk start line (avoid default 1,1 position)
       if (data.hunks.length > 0) {
@@ -502,7 +514,7 @@
 
           var acceptBtn = document.createElement('button');
           acceptBtn.className = 'btn-hunk btn-accept';
-          acceptBtn.textContent = 'Accept';
+          acceptBtn.textContent = t('accept', 'Accept');
           acceptBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             vscode.postMessage({ command: 'acceptHunk', hunkId: hunk.id });
@@ -510,7 +522,7 @@
 
           var denyBtn = document.createElement('button');
           denyBtn.className = 'btn-hunk btn-deny';
-          denyBtn.textContent = 'Deny';
+          denyBtn.textContent = t('deny', 'Deny');
           denyBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             vscode.postMessage({ command: 'denyHunk', hunkId: hunk.id });
@@ -696,7 +708,7 @@
       nextBtn.disabled = curIdx >= state.hunks.length - 1;
       posSpan.textContent = curIdx >= 0
         ? (curIdx + 1) + ' / ' + state.hunks.length
-        : state.hunks.length + ' hunk(s)';
+        : state.hunks.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
     }
 
     // ==================================================================
@@ -795,7 +807,7 @@
           updateDiff(msg);
           break;
         case 'allProcessed':
-          document.getElementById('footer-text').textContent = 'All changes processed.';
+          document.getElementById('footer-text').textContent = t('allProcessed', 'All changes processed.');
           document.getElementById('hunk-pos').textContent = '-';
           disposeContentWidgets();
           break;

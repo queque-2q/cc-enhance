@@ -279,7 +279,7 @@ export class SnapshotManager {
       let stdout: string;
       try {
         stdout = execSync(
-          `git diff --no-index --no-color -U0 "a/${posixPath}" "b/${posixPath}"`,
+          `git diff -b --no-index --no-color -U1 "a/${posixPath}" "b/${posixPath}"`,
           { encoding: 'utf8', stdio: 'pipe', timeout: 10000, cwd: tmpDir, windowsHide: true }
         );
       } catch (e: any) {
@@ -583,15 +583,17 @@ export class SnapshotManager {
     if (current.files.length === before) return; // Not found
 
     if (current.files.length === 0) {
-      // Verify before deleting index.json
+      // Write empty version first, then verify (same pattern as non-empty case)
+      try { fs.unlinkSync(indexPath); } catch (e: any) {
+        this.logger(`[removeFromIndex] WARN — failed to delete index.json: ${e.message}`);
+      }
+
+      // Re-read to catch concurrent hook additions
       const verify = this.readIndexFromDisk(indexPath);
-      if (verify && verify.files.length === 0) {
-        try { fs.unlinkSync(indexPath); } catch (e: any) {
-          this.logger(`[removeFromIndex] WARN — failed to delete index.json: ${e.message}`);
-        }
-      } else if (verify && verify.files.length > 0) {
-        // Concurrent hook added entries
+      if (verify && verify.files.length > 0) {
+        // Concurrent hook added entries while we were deleting — restore them
         this.writeIndexToDisk(indexPath, verify);
+        this.logger(`[removeFromIndex] restored ${verify.files.length} concurrent entry(ies)`);
       }
       return;
     }

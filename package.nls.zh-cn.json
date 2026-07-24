@@ -1,0 +1,13 @@
+{
+  "cc-diff.command.setupHooks": "安装 Hook 脚本",
+  "cc-diff.command.acceptAllFileEditor": "全部接受",
+  "cc-diff.command.denyAllFileEditor": "全部拒绝",
+  "cc-diff.command.prevHunk": "上一个 Hunk",
+  "cc-diff.command.nextHunk": "下一个 Hunk",
+  "cc-diff.command.toggleDiffMode": "切换 Diff 模式",
+  "cc-diff.command.openCurrentFile": "打开文件",
+  "cc-diff.viewContainer.title": "CC Diff",
+  "cc-diff.view.name": "变更",
+  "cc-diff.displayName": "CC Diff",
+  "cc-diff.description": "在 Claude Code 对话后展示文件差异，支持接受/拒绝修改"
+}

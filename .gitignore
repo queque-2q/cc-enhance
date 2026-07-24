@@ -1,6 +1,13 @@
+# node
 node_modules/
 out/
 dist/
 *.vsix
 .DS_Store
+
+# project
 .claude/
+.superpowers/
+.vscode/
+docs/
+test/

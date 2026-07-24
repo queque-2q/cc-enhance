@@ -1,15 +1,18 @@
 # Changelog
 
+## TODO
+
+- readme语言
+- 单session的问题列表
+- 问题搜索按钮
+
 ## 0.1.2
 
-TODO
-
-- 用editor/title 菜单项替换monaco diff页面按钮
-- claude code rewind冲突，怎么解决？
-
-DONE
-
+- monaco diff部分页面按钮用editor/title 菜单项替换
 - git分支切换优化
+- 图标
+- 快照+当前文件都不存在时，从列表中删除
+- 国际化
 
 ## 0.1.1
 

@@ -1,0 +1,13 @@
+{
+  "cc-diff.command.setupHooks": "Install Hook Scripts",
+  "cc-diff.command.acceptAllFileEditor": "Accept All",
+  "cc-diff.command.denyAllFileEditor": "Deny All",
+  "cc-diff.command.prevHunk": "Previous Hunk",
+  "cc-diff.command.nextHunk": "Next Hunk",
+  "cc-diff.command.toggleDiffMode": "Toggle Diff Mode",
+  "cc-diff.command.openCurrentFile": "Open File",
+  "cc-diff.viewContainer.title": "CC Diff",
+  "cc-diff.view.name": "Changes",
+  "cc-diff.displayName": "CC Diff",
+  "cc-diff.description": "Show file diffs after Claude Code conversations with Accept/Deny controls"
+}

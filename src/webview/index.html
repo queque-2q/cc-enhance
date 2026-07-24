@@ -220,6 +220,10 @@
     } catch(e) {
       vscode = { postMessage: function(m) { console.log('postMessage:', m); } };
     }
+    function t(key, fallback) {
+      var i18n = window.__i18n || {};
+      return i18n[key] || fallback || key;
+    }
     var state = { files: __INITIAL_FILES__ };
 
     window.onerror = function(msg, url, line) {
@@ -248,8 +252,8 @@
         root.innerHTML =
           '<div class="empty-state">' +
             '<div class="empty-mark">&Delta;</div>' +
-            '<div class="empty-title">No changes to review</div>' +
-            '<div class="empty-desc">File diffs from Claude Code sessions appear here after each conversation.</div>' +
+            '<div class="empty-title">' + t('noChanges', 'No changes to review') + '</div>' +
+            '<div class="empty-desc">' + t('noChangesDesc', 'File diffs from Claude Code sessions appear here after each conversation.') + '</div>' +
           '</div>';
         return;
       }
@@ -271,12 +275,12 @@
         html += '<span class="file-dot ' + escAttr(file.status) + '"></span>';
         html += '<div class="file-info">';
         html += '<div class="file-path">' + esc(file.file) + '</div>';
-        html += '<div class="file-meta">session ' + esc(file.sessionId.substring(0, 8)) + '</div>';
+        html += '<div class="file-meta">' + t('session', 'session') + ' ' + esc(file.sessionId.substring(0, 8)) + '</div>';
         html += '</div>';
 
         html += '<div class="file-actions">';
-        html += '<button class="btn btn-accept" data-action="acceptFile" data-file="' + escAttr(file.file) + '">Accept</button>';
-        html += '<button class="btn btn-deny" data-action="denyFile" data-file="' + escAttr(file.file) + '">Deny</button>';
+        html += '<button class="btn btn-accept" data-action="acceptFile" data-file="' + escAttr(file.file) + '">' + t('accept', 'Accept') + '</button>';
+        html += '<button class="btn btn-deny" data-action="denyFile" data-file="' + escAttr(file.file) + '">' + t('deny', 'Deny') + '</button>';
         html += '</div>';
 
         html += '</div>';
@@ -292,9 +296,9 @@
         if (s === 'accepted' || s === 'denied') reviewed++;
       }
       html += '<div class="footer">';
-      html += '<button class="footer-btn accept-all" data-action="acceptAll">Accept All</button>';
-      html += '<span class="footer-progress">' + reviewed + '/' + total + ' reviewed</span>';
-      html += '<button class="footer-btn deny-all" data-action="denyAll">Deny All</button>';
+      html += '<button class="footer-btn accept-all" data-action="acceptAll">' + t('acceptAll', 'Accept All') + '</button>';
+      html += '<span class="footer-progress">' + reviewed + '/' + total + ' ' + t('reviewed', 'reviewed') + '</span>';
+      html += '<button class="footer-btn deny-all" data-action="denyAll">' + t('denyAll', 'Deny All') + '</button>';
       html += '</div>';
 
       root.innerHTML = html;

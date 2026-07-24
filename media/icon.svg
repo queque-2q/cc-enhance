@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 头部 - 圆方形 -->
+  <rect x="56" y="96" width="400" height="320" rx="150" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="8"/>
+  
+ <!-- 左耳 - 更大，下方往外撇，位置下移 -->
+  <ellipse cx="110" cy="100" rx="80" ry="95" fill="#1A1A1A" transform="rotate(50, 80, 135)"/>
+  
+  <!-- 右耳 - 更大，下方往外撇，位置下移 -->
+  <ellipse cx="402" cy="100" rx="80" ry="95" fill="#1A1A1A" transform="rotate(-50, 432, 135)"/>
+  
+  
+  <!-- 左眼 - 正八形状 \，上端往外斜（右倾） -->
+  <ellipse cx="190" cy="265" rx="22" ry="38" fill="#1A1A1A" transform="rotate(25, 190, 265)"/>
+  
+  <!-- 右眼 - 正八形状 /，上端往外斜（左倾） -->
+  <ellipse cx="322" cy="265" rx="22" ry="38" fill="#1A1A1A" transform="rotate(-25, 322, 265)"/>
+
+  <!-- 左眼高光 -->
+  <circle cx="182" cy="261" r="4" fill="#FFFFFF"/>
+  
+  <!-- 右眼高光 -->
+  <circle cx="314" cy="261" r="4" fill="#FFFFFF"/>
+  
+  <!-- 鼻子 -->
+  <ellipse cx="256" cy="300" rx="22" ry="14" fill="#1A1A1A"/>
+  
+  <!-- 嘴巴 - 微笑 -->
+  <path d="M 215 330 Q 240 358 256 340 Q 272 358 297 330" stroke="#1A1A1A" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -31,7 +31,7 @@ $stepNum++
 # 2. Package VSIX
 Write-Host "`n[$stepNum/$totalSteps] Packaging VSIX..." -ForegroundColor Yellow
 Push-Location $root
-npx vsce package --allow-missing-repository
+npx vsce package --allow-missing-repository --baseContentUrl .
 Pop-Location
 
 Write-Host "`n=== Done! ===" -ForegroundColor Green

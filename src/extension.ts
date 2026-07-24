@@ -145,7 +145,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   statusBarItem.command = 'cc-diff.focus';
   statusBarItem.text = '$(diff) CC Diff';
-  statusBarItem.tooltip = 'Show CC Diff panel';
+  statusBarItem.tooltip = vscode.l10n.t('Show CC Diff panel');
   context.subscriptions.push(statusBarItem);
   statusBarItem.show();
 
@@ -184,11 +184,13 @@ export function activate(context: vscode.ExtensionContext): void {
         await hooksManager.setupHooks(workspaceRoot);
         log('Command: setupHooks succeeded');
         vscode.window.showInformationMessage(
-          'CC Diff: Hook 脚本安装成功！请查看 .claude/settings.json'
+          vscode.l10n.t('CC Diff: Hook scripts installed successfully! Check .claude/settings.json')
         );
       } catch (err: any) {
         log(`Command: setupHooks FAILED — ${err.message}`);
-        vscode.window.showErrorMessage(`CC Diff: Hook 安装失败 — ${err.message}`);
+        vscode.window.showErrorMessage(
+          vscode.l10n.t('CC Diff: Hook installation failed — {0}', err.message)
+        );
       }
     })
   );
@@ -301,13 +303,15 @@ async function handleBranchCleanupSignal(workspaceRoot: string): Promise<void> {
   const fileList = mismatched.map(f => f.file).join('\n');
 
   const answer = await vscode.window.showWarningMessage(
-    `检测到 Git 分支已切换（当前: \`${currentBranch}\`，快照所属: \`${branchList}\`）。\n\n` +
-    `${mismatched.length} 个文件的快照属于其他分支，是否清理？\n\n${fileList}`,
-    '清理',
-    '取消'
+    vscode.l10n.t(
+      'Detected Git branch switch (current: `{0}`, snapshot belongs to: `{1}`).\n\n{2} file(s) from other branch — clean up?\n\n{3}',
+      currentBranch, branchList, mismatched.length, fileList
+    ),
+    vscode.l10n.t('Clean Up'),
+    vscode.l10n.t('Cancel')
   );
 
-  if (answer === '清理') {
+  if (answer === vscode.l10n.t('Clean Up')) {
     for (const f of mismatched) {
       snapshotManager.removeTrackedFile(f.file);
     }
