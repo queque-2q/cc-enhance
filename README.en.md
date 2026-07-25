@@ -1,6 +1,6 @@
 # cc-diff
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.en.md) | [中文](README.zh-CN.md)
 
 VSCode extension — displays file diffs after Claude Code conversations, with file-level and hunk-level Accept/Deny controls, similar to Copilot's diff feature.
 
@@ -27,58 +27,6 @@ cc-diff/
         ├── specs/2026-07-03-cc-diff-design.md   # Design document
         └── plans/2026-07-03-cc-diff.md            # Implementation plan
 ```
-
-## Installation
-
-### 1. Configure Claude Code Hooks
-
-Add to your project's `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/cc-diff/hooks/pre-tool-use.js",
-            "timeout": 10000
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/cc-diff/hooks/session-end.js",
-            "timeout": 30000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 2. Install the VSCode Extension
-
-```bash
-cd vscode-extension
-npm install
-npm run compile
-```
-
-Then copy or symlink the `vscode-extension` directory to the VSCode extensions directory:
-- Windows: `%USERPROFILE%\.vscode\extensions\cc-diff`
-- Mac/Linux: `~/.vscode/extensions/cc-diff`
-
-### 3. Reload VSCode
-
-Select "Developer: Reload Window" from the command palette.
 
 ## Usage
 

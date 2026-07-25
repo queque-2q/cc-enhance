@@ -1,6 +1,6 @@
 # cc-diff
 
-[English](README.md) | [中文](README.zh-CN.md)
+[English](README.en.md) | [中文](README.zh-CN.md)
 
 VSCode 扩展 —— 在 Claude Code 对话后展示文件 diff，提供文件级别和 Hunk 级别的 Accept（接受修改）/ Deny（还原修改）控制，类似 Copilot 的 diff 功能。
 
@@ -27,58 +27,6 @@ cc-diff/
         ├── specs/2026-07-03-cc-diff-design.md   # 设计文档
         └── plans/2026-07-03-cc-diff.md           # 实现计划
 ```
-
-## 安装
-
-### 1. 配置 Claude Code Hooks
-
-在项目的 `.claude/settings.json` 中添加：
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/cc-diff/hooks/pre-tool-use.js",
-            "timeout": 10000
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/cc-diff/hooks/session-end.js",
-            "timeout": 30000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 2. 安装 VSCode 扩展
-
-```bash
-cd vscode-extension
-npm install
-npm run compile
-```
-
-然后将 `vscode-extension` 目录复制或链接到 VSCode 扩展目录：
-- Windows: `%USERPROFILE%\.vscode\extensions\cc-diff`
-- Mac/Linux: `~/.vscode/extensions/cc-diff`
-
-### 3. 重启 VSCode
-
-在命令面板中选择 "Developer: Reload Window"。
 
 ## 使用
 
