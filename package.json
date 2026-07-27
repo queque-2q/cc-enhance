@@ -5,6 +5,10 @@
   "version": "0.1.2",
   "icon": "media/icon.png",
   "publisher": "cc-diff",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/queque-2q/cc-enhance"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
