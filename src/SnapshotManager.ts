@@ -1,18 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { execSync } from 'child_process';
 import { type LineChange, extractLines, replaceLineRange } from './lineOps';
 
 // ======================================================================
 // Types
 // ======================================================================
-
-export interface HunkData {
-  id: number;
-  header: string;
-  patch: string;
-}
 
 export type FileStatus = 'pending' | 'partial' | 'keeped';
 
@@ -232,167 +225,6 @@ export class SnapshotManager {
     this.files.delete(entry.file);
 
     this.logger(`[removeTrackedFile] "${filePath}" — cleaned up`);
-  }
-
-  // ------------------------------------------------------------------
-  // Diff computation
-  // ------------------------------------------------------------------
-
-  /**
-   * Compute unified diff between snapshot and current workspace file.
-   * Returns parsed hunks ready for the diff panel.
-   */
-  computeDiff(filePath: string, workspaceRoot: string): HunkData[] {
-    // Treat missing snapshot as empty (file creation scenario)
-    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
-
-    const absPath = path.resolve(workspaceRoot, filePath);
-    let currentContent = '';
-    try {
-      currentContent = fs.readFileSync(absPath, 'utf8');
-    } catch {
-      // File doesn't exist — treat as empty (file deletion scenario)
-    }
-
-    if (snapshotContent === currentContent) return [];
-
-    const patchText = this.gitDiff(snapshotContent, currentContent, filePath);
-    if (!patchText) return [];
-
-    return this.parseHunks(patchText);
-  }
-
-  /**
-   * Generate unified diff between two content strings using `git diff --no-index`.
-   */
-  private gitDiff(oldContent: string, newContent: string, relativeFile: string): string {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-diff-'));
-    try {
-      const oldTmp = path.join(tmpDir, 'a', relativeFile);
-      const newTmp = path.join(tmpDir, 'b', relativeFile);
-
-      fs.mkdirSync(path.dirname(oldTmp), { recursive: true });
-      fs.mkdirSync(path.dirname(newTmp), { recursive: true });
-      fs.writeFileSync(oldTmp, oldContent, 'utf8');
-      fs.writeFileSync(newTmp, newContent, 'utf8');
-
-      const posixPath = relativeFile.replace(/\\/g, '/');
-      let stdout: string;
-      try {
-        stdout = execSync(
-          `git diff --no-index --no-color -U0 "a/${posixPath}" "b/${posixPath}"`,
-          { encoding: 'utf8', stdio: 'pipe', timeout: 10000, cwd: tmpDir, windowsHide: true }
-        );
-      } catch (e: any) {
-        if (e.status === 1 && e.stdout) {
-          stdout = typeof e.stdout === 'string' ? e.stdout : e.stdout.toString();
-        } else {
-          this.logger(`[gitDiff] FAILED for "${relativeFile}": status=${e.status}`);
-          return '';
-        }
-      }
-
-      return stdout || '';
-    } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    }
-  }
-
-  /**
-   * Parse a unified diff string into individual hunks.
-   */
-  private parseHunks(patchText: string): HunkData[] {
-    const hunks: HunkData[] = [];
-    const lines = patchText.split('\n');
-    // Remove trailing empty element from split to avoid appending '\n' to it
-    if (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop();
-    }
-    let currentHunk: HunkData | null = null;
-    let hunkId = 0;
-    let inHeader = true;
-
-    for (const line of lines) {
-      if (inHeader && line.startsWith('@@')) {
-        inHeader = false;
-      }
-      if (inHeader) continue;
-
-      if (line.startsWith('@@')) {
-        if (currentHunk) {
-          hunks.push(currentHunk);
-        }
-        currentHunk = {
-          id: hunkId++,
-          header: line,
-          patch: line + '\n',
-        };
-      } else if (currentHunk) {
-        currentHunk.patch += line + '\n';
-      }
-    }
-
-    if (currentHunk) {
-      hunks.push(currentHunk);
-    }
-
-    return hunks;
-  }
-
-  // ------------------------------------------------------------------
-  // Hunk application (private)
-  // ------------------------------------------------------------------
-
-  /**
-   * Apply or reverse-apply a single hunk to content in a temp directory.
-   * Uses `git apply` for reliability with edge cases (line endings, context matching).
-   */
-  private applyHunkToContent(
-    content: string,
-    relativeFile: string,
-    hunkPatch: string,
-    reverse: boolean
-  ): { success: boolean; content?: string; error?: string } {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-diff-'));
-    try {
-      const fileDir = path.join(tmpDir, path.dirname(relativeFile));
-      if (fileDir !== tmpDir) {
-        fs.mkdirSync(fileDir, { recursive: true });
-      }
-      const tmpFile = path.join(tmpDir, relativeFile);
-      fs.writeFileSync(tmpFile, content, 'utf8');
-
-      const posixPath = relativeFile.replace(/\\/g, '/');
-      const fullPatch = `--- a/${posixPath}\n+++ b/${posixPath}\n` + hunkPatch;
-      const patchFile = path.join(tmpDir, 'hunk.patch');
-      fs.writeFileSync(patchFile, fullPatch, 'utf8');
-
-      // Debug: log the patch being applied
-      this.logger(`[applyHunkToContent] reverse=${reverse} file="${relativeFile}"`);
-      this.logger(`[applyHunkToContent] content length: ${content.length}`);
-      this.logger(`[applyHunkToContent] patch (${fullPatch.length} bytes):\n${fullPatch}`);
-
-      const cmd = reverse
-        ? `git apply --unidiff-zero --reverse "${patchFile}"`
-        : `git apply --unidiff-zero "${patchFile}"`;
-      this.logger(`[applyHunkToContent] cmd: ${cmd}`);
-      execSync(cmd, {
-        cwd: tmpDir,
-        stdio: 'pipe',
-        timeout: 5000,
-        windowsHide: true,
-      });
-
-      const resultContent = fs.readFileSync(tmpFile, 'utf8');
-      this.logger(`[applyHunkToContent] SUCCESS — result content length: ${resultContent.length}`);
-      return { success: true, content: resultContent };
-    } catch (e: any) {
-      const stderr = e.stderr?.toString() || e.message || 'Unknown git error';
-      this.logger(`[applyHunkToContent] FAILED — ${stderr}`);
-      return { success: false, error: stderr };
-    } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    }
   }
 
   // ------------------------------------------------------------------
