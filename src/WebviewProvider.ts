@@ -160,20 +160,20 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
         this._diffEditorManager.openDiff(file);
         break;
 
-      case 'acceptFile': {
-        this._snapshotManager.acceptAll(file);
+      case 'keepFile': {
+        this._snapshotManager.keepAll(file);
         if (this._diffEditorManager.hasActiveDiff(file)) {
-          this._diffEditorManager.acceptAll(file);
+          this._diffEditorManager.keepAll(file);
         }
         this.refresh();
         break;
       }
 
-      case 'denyFile': {
+      case 'undoFile': {
         if (this._diffEditorManager.hasActiveDiff(file)) {
-          this._diffEditorManager.denyAll(file);
+          this._diffEditorManager.undoAll(file);
         } else {
-          const result = this._snapshotManager.denyAll(file, this._workspaceRoot);
+          const result = this._snapshotManager.undoAll(file, this._workspaceRoot);
           if (!result.success) {
             vscode.window.showErrorMessage(
               vscode.l10n.t('CC Diff: Failed to revert "{0}" — {1}', file, result.error || '')
@@ -184,34 +184,34 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
-      case 'acceptAll': {
-        const acceptAllLabel = vscode.l10n.t('Accept All');
+      case 'keepAll': {
+        const keepAllLabel = vscode.l10n.t('Keep All');
         const answer = await vscode.window.showInformationMessage(
-          vscode.l10n.t('Accept all changes in all files?'),
+          vscode.l10n.t('Keep all changes in all files?'),
           { modal: true },
-          acceptAllLabel
+          keepAllLabel
         );
-        if (answer === acceptAllLabel) {
+        if (answer === keepAllLabel) {
           for (const f of this._snapshotManager.getAllFiles()) {
-            this._snapshotManager.acceptAll(f);
+            this._snapshotManager.keepAll(f);
           }
           this.refresh();
         }
         break;
       }
 
-      case 'denyAll': {
-        const denyAllLabel = vscode.l10n.t('Deny All');
+      case 'undoAll': {
+        const undoAllLabel = vscode.l10n.t('Undo All');
         const answer = await vscode.window.showInformationMessage(
-          vscode.l10n.t('Deny (revert) all changes in all files? This will undo all modifications.'),
+          vscode.l10n.t('Undo (revert) all changes in all files? This will undo all modifications.'),
           { modal: true },
-          denyAllLabel
+          undoAllLabel
         );
-        if (answer === denyAllLabel) {
+        if (answer === undoAllLabel) {
           const files = [...this._snapshotManager.getAllFiles()]; // copy before iterating
           const errors: string[] = [];
           for (const f of files) {
-            const result = this._snapshotManager.denyAll(f, this._workspaceRoot);
+            const result = this._snapshotManager.undoAll(f, this._workspaceRoot);
             if (!result.success) {
               errors.push(`${f}: ${result.error}`);
             }
@@ -242,10 +242,10 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
       '@@locale': vscode.env.language,
       noChanges: vscode.l10n.t('No changes to review'),
       noChangesDesc: vscode.l10n.t('File diffs from Claude Code sessions appear here after each conversation.'),
-      accept: vscode.l10n.t('Accept'),
-      deny: vscode.l10n.t('Deny'),
-      acceptAll: vscode.l10n.t('Accept All'),
-      denyAll: vscode.l10n.t('Deny All'),
+      keep: vscode.l10n.t('Keep'),
+      undo: vscode.l10n.t('Undo'),
+      keepAll: vscode.l10n.t('Keep All'),
+      undoAll: vscode.l10n.t('Undo All'),
       reviewed: vscode.l10n.t('reviewed'),
       session: vscode.l10n.t('session'),
     };

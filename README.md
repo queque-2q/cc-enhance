@@ -2,7 +2,7 @@
 
 [English](README.en.md) | [中文](README.zh-CN.md)
 
-VSCode 扩展 —— 在 Claude Code 对话后展示文件 diff，提供文件级别和 Hunk 级别的 Accept（接受修改）/ Deny（还原修改）控制，类似 Copilot 的 diff 功能。
+VSCode 扩展 —— 在 Claude Code 对话后展示文件 diff，提供文件级别和 Hunk 级别的 Keep（接受修改）/ Undo（还原修改）控制，类似 Copilot 的 diff 功能。
 
 ## 项目结构
 
@@ -13,7 +13,7 @@ cc-diff/
 │   └── session-end.js        # SessionEnd hook：会话结束计算 diff，生成 patch
 ├── src/
 │   ├── extension.ts      # 扩展入口
-│   ├── DiffManager.ts    # 核心状态管理：加载 patch、Accept/Deny、反向 git apply
+│   ├── DiffManager.ts    # 核心状态管理：加载 patch、Keep/Undo、反向 git apply
 │   ├── WebviewProvider.ts # 侧边栏 Webview UI
 │   └── types/
 │       └── diff.d.ts     # diff 包的 TypeScript 类型声明
@@ -37,9 +37,9 @@ cc-diff/
 ### 日常使用
 
 1. 启动 Claude Code 会话，让 Claude Code 编辑文件
-2. 会话结束后，会弹出侧边栏，查看所有变更文件及 Accept/Deny 控制
+2. 会话结束后，会弹出侧边栏，查看所有变更文件及 Keep/Undo 控制
 3. 点击文件可在 Monaco Diff Editor 中查看差异（支持并排/统一视图）
-4. 使用工具栏按钮或命令面板逐文件或批量接受/拒绝变更
+4. 使用工具栏按钮或命令面板逐文件或批量接受/撤销变更
 
 ## 命令
 
@@ -48,8 +48,8 @@ cc-diff/
 | 命令 | 标题 | 描述 |
 | --- | --- | --- |
 | `cc-diff.setupHooks` | **安装 Hook 脚本** | 为当前工作区部署和配置 Claude Code hook 脚本（`pre-tool-use.js`、`session-end.js`） |
-| `cc-diff.acceptAllFileEditor` | **全部接受** | 接受当前文件中的所有变更（在 Monaco Diff Editor 中可见） |
-| `cc-diff.denyAllFileEditor` | **全部拒绝** | 还原当前文件中的所有变更（在 Monaco Diff Editor 中可见） |
+| `cc-diff.keepAllFileEditor` | **全部接受** | 接受当前文件中的所有变更（在 Monaco Diff Editor 中可见） |
+| `cc-diff.undoAllFileEditor` | **全部撤销** | 还原当前文件中的所有变更（在 Monaco Diff Editor 中可见） |
 | `cc-diff.prevHunk` | **上一个 Hunk** | 导航到上一个 diff 块 |
 | `cc-diff.nextHunk` | **下一个 Hunk** | 导航到下一个 diff 块 |
 | `cc-diff.toggleDiffMode` | **切换 Diff 模式** | 在统一视图（inline）和并排视图（side-by-side）之间切换 |
@@ -72,7 +72,7 @@ Claude Code 编辑文件 → PreToolUse Hook 保存快照
                               ↓
       点击文件名 → VSCode Diff Editor（左: 修改前, 右: 当前）
                               ↓
-        Accept 全部 / Deny 逐个 / 手动编辑后实时更新
+        Keep 全部 / Undo 逐个 / 手动编辑后实时更新
 ```
 
 ## 数据存储
@@ -93,5 +93,9 @@ Claude Code 编辑文件 → PreToolUse Hook 保存快照
 | VSCode 扩展 | TypeScript, VSCode Extension API |
 | Webview UI | HTML + CSS + Vanilla JS（所有颜色使用 VSCode CSS 变量） |
 | Diff 计算 | `diff` npm 包（unified diff） |
-| Deny 操作 | `git apply --reverse` |
+| Undo 操作 | `git apply --reverse` |
 | 构建 | `tsc` |
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE) 开源许可。

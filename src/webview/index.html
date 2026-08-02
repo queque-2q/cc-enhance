@@ -105,8 +105,9 @@
     .file-row {
       display: flex;
       align-items: center;
-      gap: 5px;
-      padding: 4px 14px;
+      flex-wrap: wrap;
+      gap: 4px 6px;
+      padding: 5px 14px;
       cursor: pointer;
       border-bottom: 1px solid var(--border);
       border-left: 2px solid transparent;
@@ -121,10 +122,10 @@
       margin-right: 1px;
     }
     .file-dot.pending  { background: var(--accent); }
-    .file-dot.accepted { background: var(--green); }
+    .file-dot.keeped { background: var(--green); }
     .file-dot.denied   { background: var(--red); }
     .file-dot.partial  { background: var(--yellow); }
-    .file-info { flex: 1; min-width: 0; }
+    .file-info { flex: 1; min-width: 80px; }
     .file-path {
       font-size: 11px;
       font-family: var(--mono);
@@ -132,12 +133,13 @@
       word-break: break-all;
     }
     .file-meta {
-      font-size: 9.5px;
+      font-size: 9px;
       color: var(--muted);
       font-family: var(--mono);
       margin-top: 0;
+      opacity: 0.65;
     }
-    .file-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .file-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: auto; }
     .btn {
       font-family: var(--font);
       font-size: 10px;
@@ -153,14 +155,16 @@
       color: var(--fg);
       transition: 0.15s ease;
     }
-    .btn-accept { background: var(--accent); border-color: var(--accent); color: var(--btn-text); }
-    .btn-accept:hover { filter: brightness(0.85); }
-    .btn-deny { background: var(--red); border-color: var(--red); color: var(--btn-text); }
-    .btn-deny:hover { filter: brightness(0.85); }
+    .btn-keep { background: var(--accent); border-color: var(--accent); color: var(--btn-text); }
+    .btn-keep:hover { filter: brightness(0.85); }
+    .btn-undo { background: var(--red); border-color: var(--red); color: var(--btn-text); }
+    .btn-undo:hover { filter: brightness(0.85); }
     .footer {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 4px 8px;
+      justify-content: center;
       padding: 5px 14px;
       border-top: 1px solid var(--border);
       position: sticky;
@@ -172,7 +176,11 @@
       font-size: 10px;
       color: var(--muted);
       font-family: var(--mono);
+      flex: 1 0 auto;
+      text-align: center;
+      white-space: nowrap;
     }
+    .footer-actions { display: flex; gap: 6px; flex-shrink: 0; }
     .footer-btn {
       font-family: var(--font);
       font-size: 10.5px;
@@ -187,20 +195,20 @@
       background: transparent;
       transition: 0.15s ease;
     }
-    .footer-btn.accept-all {
+    .footer-btn.keep-all {
       background: var(--accent);
       border-color: var(--accent);
       color: var(--btn-text);
     }
-    .footer-btn.accept-all:hover {
+    .footer-btn.keep-all:hover {
       filter: brightness(0.85);
     }
-    .footer-btn.deny-all {
+    .footer-btn.undo-all {
       background: var(--red);
       border-color: var(--red);
       color: var(--btn-text);
     }
-    .footer-btn.deny-all:hover {
+    .footer-btn.undo-all:hover {
       filter: brightness(0.85);
     }
     @media (prefers-reduced-motion: reduce) {
@@ -279,8 +287,8 @@
         html += '</div>';
 
         html += '<div class="file-actions">';
-        html += '<button class="btn btn-accept" data-action="acceptFile" data-file="' + escAttr(file.file) + '">' + t('accept', 'Accept') + '</button>';
-        html += '<button class="btn btn-deny" data-action="denyFile" data-file="' + escAttr(file.file) + '">' + t('deny', 'Deny') + '</button>';
+        html += '<button class="btn btn-keep" data-action="keepFile" data-file="' + escAttr(file.file) + '">' + t('keep', 'Keep') + '</button>';
+        html += '<button class="btn btn-undo" data-action="undoFile" data-file="' + escAttr(file.file) + '">' + t('undo', 'Undo') + '</button>';
         html += '</div>';
 
         html += '</div>';
@@ -289,16 +297,11 @@
       html += '</div>';
 
       // Footer with bulk actions
-      var total = files.length;
-      var reviewed = 0;
-      for (var j = 0; j < files.length; j++) {
-        var s = files[j].status;
-        if (s === 'accepted' || s === 'denied') reviewed++;
-      }
       html += '<div class="footer">';
-      html += '<button class="footer-btn accept-all" data-action="acceptAll">' + t('acceptAll', 'Accept All') + '</button>';
-      html += '<span class="footer-progress">' + reviewed + '/' + total + ' ' + t('reviewed', 'reviewed') + '</span>';
-      html += '<button class="footer-btn deny-all" data-action="denyAll">' + t('denyAll', 'Deny All') + '</button>';
+      html += '<div class="footer-actions">';
+      html += '<button class="footer-btn keep-all" data-action="keepAll">' + t('keepAll', 'Keep All') + '</button>';
+      html += '<button class="footer-btn undo-all" data-action="undoAll">' + t('undoAll', 'Undo All') + '</button>';
+      html += '</div>';
       html += '</div>';
 
       root.innerHTML = html;

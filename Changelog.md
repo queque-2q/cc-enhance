@@ -2,9 +2,14 @@
 
 ## TODO
 
-- readme语言
-- 单session的问题列表
-- 问题搜索按钮
+- monaco diff显示和git diff命令算法不太一致，所以hunk块不太对得上
+
+## 0.1.3
+
+- 优化
+  - 界面优化
+  - 切换hunk优化
+- license
 
 ## 0.1.2
 

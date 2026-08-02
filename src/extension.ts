@@ -162,17 +162,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // File-level commands (called from sidebar or editor toolbar)
   context.subscriptions.push(
-    vscode.commands.registerCommand('cc-diff.acceptAllFile', async (filePath: string) => {
-      log(`Command: acceptAllFile — file="${filePath}"`);
-      await diffEditorManager.acceptAll(filePath);
+    vscode.commands.registerCommand('cc-diff.keepAllFile', async (filePath: string) => {
+      log(`Command: keepAllFile — file="${filePath}"`);
+      await diffEditorManager.keepAll(filePath);
       webviewProvider.refresh();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('cc-diff.denyAllFile', async (filePath: string) => {
-      log(`Command: denyAllFile — file="${filePath}"`);
-      await diffEditorManager.denyAll(filePath);
+    vscode.commands.registerCommand('cc-diff.undoAllFile', async (filePath: string) => {
+      log(`Command: undoAllFile — file="${filePath}"`);
+      await diffEditorManager.undoAll(filePath);
       webviewProvider.refresh();
     })
   );
@@ -197,21 +197,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── Editor/title commands (Monaco diff panel) ──
   context.subscriptions.push(
-    vscode.commands.registerCommand('cc-diff.acceptAllFileEditor', async () => {
+    vscode.commands.registerCommand('cc-diff.keepAllFileEditor', async () => {
       const file = diffEditorManager.currentFile;
       if (!file) return;
-      log(`Command: acceptAllFileEditor — file="${file}"`);
-      await diffEditorManager.acceptAll(file);
+      log(`Command: keepAllFileEditor — file="${file}"`);
+      await diffEditorManager.keepAll(file);
       webviewProvider.refresh();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('cc-diff.denyAllFileEditor', async () => {
+    vscode.commands.registerCommand('cc-diff.undoAllFileEditor', async () => {
       const file = diffEditorManager.currentFile;
       if (!file) return;
-      log(`Command: denyAllFileEditor — file="${file}"`);
-      await diffEditorManager.denyAll(file);
+      log(`Command: undoAllFileEditor — file="${file}"`);
+      await diffEditorManager.undoAll(file);
       webviewProvider.refresh();
     })
   );
@@ -241,6 +241,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('cc-diff.openCurrentFile', () => {
       log('Command: openCurrentFile');
       diffEditorManager.openCurrentFile();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cc-diff.saveDiff', () => {
+      log('Command: saveDiff');
+      diffEditorManager.save();
     })
   );
 

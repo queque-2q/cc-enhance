@@ -63,22 +63,22 @@
       white-space: nowrap;
       transition: background 0.12s ease;
     }
-    .btn-accept {
+    .btn-keep {
       background: var(--accent);
       border-color: var(--accent);
       color: var(--btn-fg);
     }
-    .btn-accept:hover,
-    .btn-accept.active {
+    .btn-keep:hover,
+    .btn-keep.active {
       filter: brightness(0.85);
     }
-    .btn-deny {
+    .btn-undo {
       background: var(--red);
       border-color: var(--red);
       color: var(--btn-fg);
     }
-    .btn-deny:hover,
-    .btn-deny.active {
+    .btn-undo:hover,
+    .btn-undo.active {
       filter: brightness(0.85);
     }
     .btn-mode {
@@ -123,6 +123,26 @@
     #editor-container {
       flex: 1;
       min-height: 0;
+      position: relative;
+    }
+
+    /* ── Hunk action overlay layer ──────────── */
+    #hunk-actions-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      overflow: hidden;
+    }
+    #hunk-actions-layer .hunk-actions {
+      position: absolute;
+      right: 14px;
+      pointer-events: auto;
+      display: inline-flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 4px;
     }
 
     /* ── Footer ────────────────────────────── */
@@ -152,16 +172,8 @@
       color: var(--muted);
     }
 
-    /* ── Hunk action widget ────────────────── */
-    .hunk-actions {
-      display: inline-flex;
-      flex-direction: row;
-      flex-wrap: nowrap;
-      align-items: center;
-      gap: 4px;
-      vertical-align: middle;
-    }
-    .hunk-actions .btn-hunk {
+    /* ── Hunk action buttons ───────────────── */
+    #hunk-actions-layer .hunk-actions .btn-hunk {
       font-family: var(--font);
       font-size: 10px;
       font-weight: 600;
@@ -175,10 +187,10 @@
       white-space: nowrap;
       transition: background 0.12s ease;
     }
-    .hunk-actions .btn-hunk.btn-accept { background: var(--accent); border-color: var(--accent); color: var(--btn-fg); }
-    .hunk-actions .btn-hunk.btn-accept:hover { filter: brightness(0.85); }
-    .hunk-actions .btn-hunk.btn-deny { background: var(--red); border-color: var(--red); color: var(--btn-fg); }
-    .hunk-actions .btn-hunk.btn-deny:hover { filter: brightness(0.85); }
+    #hunk-actions-layer .hunk-actions .btn-hunk.btn-keep { background: var(--accent); border-color: var(--accent); color: var(--btn-fg); }
+    #hunk-actions-layer .hunk-actions .btn-hunk.btn-keep:hover { filter: brightness(0.85); }
+    #hunk-actions-layer .hunk-actions .btn-hunk.btn-undo { background: var(--red); border-color: var(--red); color: var(--btn-fg); }
+    #hunk-actions-layer .hunk-actions .btn-hunk.btn-undo:hover { filter: brightness(0.85); }
 
   </style>
 </head>
@@ -192,8 +204,8 @@
       <button class="btn btn-nav" id="btn-next-hunk" title="Next Hunk">▶</button>
     </div>
     <div class="btn-group">
-      <button class="btn btn-accept" id="btn-accept-all">Accept All</button>
-      <button class="btn btn-deny" id="btn-deny-all">Deny All</button>
+      <button class="btn btn-keep" id="btn-keep-all">Keep All</button>
+      <button class="btn btn-undo" id="btn-undo-all">Undo All</button>
     </div>
   </div>
 
@@ -202,6 +214,7 @@
     <div class="overlay" id="loading-overlay">
       <span class="overlay-text" id="loading-text"></span>
     </div>
+    <div id="hunk-actions-layer"></div>
   </div>
 
   <!-- Footer -->
@@ -238,9 +251,10 @@
       diffEditor: null,
       originalModel: null,
       modifiedModel: null,
-      contentWidgets: [],
       mode: 'side-by-side',  // 'side-by-side' | 'inline'
-      currentHunkIndex: -1   // 0-based index into hunks array, -1 = none
+      currentHunkIndex: -1,  // 0-based index into hunks array, -1 = none
+      dirty: false,          // true when modified model differs from disk
+      _syncing: false        // true while we programmatically setValue (ignore change events)
     };
 
     // ==================================================================
@@ -276,8 +290,8 @@
       hideLoading();
 
       // Set toolbar button text
-      document.getElementById('btn-accept-all').textContent = t('acceptAll', 'Accept All');
-      document.getElementById('btn-deny-all').textContent = t('denyAll', 'Deny All');
+      document.getElementById('btn-keep-all').textContent = t('keepAll', 'Keep All');
+      document.getElementById('btn-undo-all').textContent = t('undoAll', 'Undo All');
 
       // If renderDiff arrived before Monaco loaded, render now
       if (state._pendingRender) {
@@ -395,13 +409,16 @@
       var modified = data.modified || '';
       var language = getLanguageFromFilename(data.file);
 
-      // Dispose old content widgets
-      disposeContentWidgets();
+      // Dispose old overlay widgets
+      clearHunkButtons();
 
       if (state.diffEditor) {
-        // Update existing models (also update language in case file changed)
+        // Update existing models (also update language in case file changed).
+        // setValue() fires change events — suppress dirty marking while syncing.
+        state._syncing = true;
         state.originalModel.setValue(original);
         state.modifiedModel.setValue(modified);
+        state._syncing = false;
         if (state.originalModel.getLanguageId() !== language) {
           monaco.editor.setModelLanguage(state.originalModel, language);
         }
@@ -412,6 +429,12 @@
         // First render: create models + diff editor
         state.originalModel = monaco.editor.createModel(original, language);
         state.modifiedModel = monaco.editor.createModel(modified, language);
+
+        // Track unsaved edits: mark dirty on user changes, ignore our own syncs
+        state.modifiedModel.onDidChangeContent(function () {
+          if (state._syncing) return;
+          setDirty(true);
+        });
 
         state.diffEditor = monaco.editor.createDiffEditor(container, {
           enableSplitViewResizing: true,
@@ -426,6 +449,9 @@
           originalEditable: false,
           automaticLayout: true,
           ignoreTrimWhitespace: false,
+          // 'legacy' (standard Myers) is closer to `git diff` than the default
+          // 'smart' heuristic, reducing hunk-boundary divergence.
+          diffAlgorithm: 'legacy',
         });
 
         // Responsive mode: force inline when container is too narrow
@@ -445,9 +471,14 @@
         // Listen to scroll and cursor changes on modified editor to update nav buttons
         modEdit.onDidScrollChange(function () {
           updateNavButtons();
+          syncOverlayPositions();
         });
         modEdit.onDidChangeCursorPosition(function () {
           updateNavButtons();
+        });
+        // Update overlay positions when layout changes (resize, mode toggle, etc.)
+        modEdit.onDidLayoutChange(function () {
+          syncOverlayPositions();
         });
       }
       if (state.diffEditor) {
@@ -456,11 +487,18 @@
         });
       }
 
-      // Create content widgets for each hunk
-      var modifiedEditor = state.diffEditor.getModifiedEditor();
+      // Model is now synced to disk content — clear any dirty marker
+      setDirty(false);
+
+      // Create overlay buttons for each hunk
       for (var i = 0; i < data.hunks.length; i++) {
-        addHunkWidget(modifiedEditor, data.hunks[i]);
+        addHunkButtons(data.hunks[i]);
       }
+
+      // Initial position sync (after Monaco has laid out)
+      requestAnimationFrame(function () {
+        syncOverlayPositions();
+      });
 
       // Update footer
       document.getElementById('footer-text').textContent =
@@ -490,70 +528,161 @@
     }
 
     // ==================================================================
-    // Content widgets
+    // Hunk action overlay widgets
     // ==================================================================
-    function addHunkWidget(editor, hunk) {
-      // Parse hunk header to find position
-      // Format: @@ -oldStart,oldCount +newStart,newCount @@
+
+    /** Track overlay widget DOM nodes for position syncing */
+    var hunkOverlayRefs = []; // { el, lineNumber }
+
+    /**
+     * Find the anchor line number in the modified editor for a hunk's buttons.
+     * - Hunks with additions: returns the line number of the first "+" line.
+     * - Deletion-only hunks: returns the first context line AFTER the deleted lines
+     *   (i.e. the first line that still exists in modified right after the deletions).
+     * - Pure deletion at end of file: returns newStart + newCount.
+     */
+    function findAnchorLine(hunk) {
       var m = hunk.header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-      if (!m) return;
+      if (!m) return -1;
 
       var newStart = parseInt(m[1], 10);
       var newCount = m[2] ? parseInt(m[2], 10) : 1;
+      var patchLines = hunk.patch.split('\n');
 
-      // Place widget at the last line of the hunk in modified editor
-      var anchorPos = { lineNumber: newStart + newCount - 1, column: Number.MAX_SAFE_INTEGER };
+      // Remove trailing empty string from split
+      if (patchLines.length > 0 && patchLines[patchLines.length - 1] === '') {
+        patchLines.pop();
+      }
 
-      var widget = {
-        hunkId: hunk.id,
-        getId: function () { return 'hunk-actions-' + hunk.id; },
-        getDomNode: function () {
-          // Outer div — Monaco will overwrite its display/position, that's OK.
-          var el = document.createElement('div');
-          el.className = 'hunk-actions';
+      var lineNum = newStart - 1; // line before hunk starts in modified
+      var foundLine = -1;
+      var hasSeenDeletion = false;
 
-          var acceptBtn = document.createElement('button');
-          acceptBtn.className = 'btn-hunk btn-accept';
-          acceptBtn.textContent = t('accept', 'Accept');
-          acceptBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            vscode.postMessage({ command: 'acceptHunk', hunkId: hunk.id });
-          });
+      for (var i = 0; i < patchLines.length; i++) {
+        var line = patchLines[i];
 
-          var denyBtn = document.createElement('button');
-          denyBtn.className = 'btn-hunk btn-deny';
-          denyBtn.textContent = t('deny', 'Deny');
-          denyBtn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            vscode.postMessage({ command: 'denyHunk', hunkId: hunk.id });
-          });
+        // Skip header line
+        if (line.indexOf('@@') === 0) continue;
 
-          el.appendChild(acceptBtn);
-          el.appendChild(denyBtn);
+        if (line.indexOf('+') === 0) {
+          // First addition — anchor right here
+          lineNum++;
+          foundLine = lineNum;
+          break;
+        } else if (line.indexOf('-') === 0) {
+          // Deletion — not in modified, don't increment lineNum
+          hasSeenDeletion = true;
+        } else {
+          // Context line (or "\ No newline...") — exists in modified
+          lineNum++;
+          if (hasSeenDeletion && foundLine < 0) {
+            // First context line that comes right after deletions
+            foundLine = lineNum;
+            break;
+          }
+        }
+      }
 
-          return el;
-        },
-        getPosition: function () {
-          return {
-            position: anchorPos,
-            preference: [monaco.editor.ContentWidgetPositionPreference.EXACT]
-          };
-        },
-      };
+      if (foundLine >= 0) {
+        return foundLine;
+      }
 
-      editor.addContentWidget(widget);
-      state.contentWidgets.push(widget);
+      // Pure deletion at end of file (no context after): place after hunk
+      return newStart + newCount;
     }
 
-    function disposeContentWidgets() {
+    /** Get the layer div, creating it if needed */
+    function getHunkLayer() {
+      return document.getElementById('hunk-actions-layer');
+    }
+
+    /** Create DOM buttons for a single hunk and add them to the overlay layer */
+    function addHunkButtons(hunk) {
+      var lineNumber = findAnchorLine(hunk);
+      if (lineNumber < 0) return;
+
+      var layer = getHunkLayer();
+      if (!layer) return;
+
+      var el = document.createElement('div');
+      el.className = 'hunk-actions';
+      el.setAttribute('data-hunk-id', hunk.id);
+      el.setAttribute('data-line', lineNumber);
+
+      var keepBtn = document.createElement('button');
+      keepBtn.className = 'btn-hunk btn-keep';
+      keepBtn.textContent = t('keep', 'Keep');
+      keepBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        vscode.postMessage({ command: 'keepHunk', hunkId: hunk.id });
+      });
+
+      var undoBtn = document.createElement('button');
+      undoBtn.className = 'btn-hunk btn-undo';
+      undoBtn.textContent = t('undo', 'Undo');
+      undoBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        vscode.postMessage({ command: 'undoHunk', hunkId: hunk.id });
+      });
+
+      el.appendChild(keepBtn);
+      el.appendChild(undoBtn);
+      layer.appendChild(el);
+
+      hunkOverlayRefs.push({ el: el, lineNumber: lineNumber });
+    }
+
+    /**
+     * Sync all hunk button positions with the editor's current scroll/layout state.
+     * Called on scroll, layout change, and after initial render.
+     */
+    function syncOverlayPositions() {
       if (!state.diffEditor) return;
+
       var editor = state.diffEditor.getModifiedEditor();
-      for (var i = 0; i < state.contentWidgets.length; i++) {
-        try {
-          editor.removeContentWidget(state.contentWidgets[i]);
-        } catch (e) { /* widget may already be removed */ }
+      var layer = getHunkLayer();
+      if (!layer || hunkOverlayRefs.length === 0) return;
+
+      // Get modified editor's position relative to the container
+      var containerRect = document.getElementById('editor-container').getBoundingClientRect();
+      var editorDomNode = editor.getDomNode();
+      if (!editorDomNode) return;
+      var editorRect = editorDomNode.getBoundingClientRect();
+
+      var editorOffsetTop = editorRect.top - containerRect.top;
+      var scrollTop = editor.getScrollTop();
+      var layoutInfo = editor.getLayoutInfo();
+      // Right edge of the text content area relative to layer
+      var textRight = editorRect.left - containerRect.left + layoutInfo.contentLeft + layoutInfo.contentWidth;
+
+      for (var i = 0; i < hunkOverlayRefs.length; i++) {
+        var ref = hunkOverlayRefs[i];
+        var lineTop = editor.getTopForLineNumber(ref.lineNumber);
+        // Viewport-relative top: document position minus scroll, plus editor offset
+        var top = editorOffsetTop + lineTop - scrollTop;
+
+        ref.el.style.top = top + 'px';
+        ref.el.style.right = (containerRect.width - textRight + 14) + 'px';
       }
-      state.contentWidgets = [];
+    }
+
+    /** Remove all hunk buttons from the overlay layer */
+    function clearHunkButtons() {
+      var layer = getHunkLayer();
+      if (layer) {
+        layer.innerHTML = '';
+      }
+      hunkOverlayRefs = [];
+    }
+
+    /**
+     * Update the dirty (unsaved-edit) state and notify the extension,
+     * which reflects it in the panel title. No-op if unchanged.
+     */
+    function setDirty(dirty) {
+      if (state.dirty === dirty) return;
+      state.dirty = dirty;
+      vscode.postMessage({ command: 'dirtyChange', dirty: dirty });
     }
 
     // ==================================================================
@@ -569,9 +698,9 @@
       if (!selection) return -1;
       var cursorLine = selection.startLineNumber;
 
-      // Find hunk whose range contains cursorLine, or closest hunk
-      var best = -1;
-      var bestDist = Infinity;
+      // Strictly inside a hunk — return its index, otherwise -1 (outside).
+      // The outside case is handled by updateNavButtons, which keeps nav
+      // buttons enabled toward whichever side actually contains a hunk.
       for (var i = 0; i < state.hunks.length; i++) {
         var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
         if (!m) continue;
@@ -579,59 +708,55 @@
         var newCount = m[2] ? parseInt(m[2], 10) : 1;
         var newEnd = newStart + newCount - 1;
 
-        if (cursorLine >= newStart && cursorLine <= newEnd) {
+        if (newCount === 0) {
+          // Delete-only hunk: the new file has no lines for this region, so the
+          // new-file range [newStart, newEnd] is empty. Navigation anchors the
+          // cursor on newStart — treat that anchor line as "inside" the hunk.
+          if (cursorLine === newStart) return i;
+        } else if (cursorLine >= newStart && cursorLine <= newEnd) {
           return i; // Cursor inside this hunk
         }
-        var dist = Math.min(Math.abs(newStart - cursorLine), Math.abs(newEnd - cursorLine));
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = i;
-        }
       }
-      return best;
+      return -1;
     }
 
     function navigateHunk(direction) {
       if (!state.diffEditor || state.hunks.length === 0) return;
 
+      // Base navigation on the current hunk index when the cursor is inside a
+      // hunk. Line-range search is unreliable for delete-only hunks (their
+      // new-file range is empty), which used to make prev re-select itself.
+      var curIdx = findCurrentHunkIndex();
+      var target = -1;
+
       var editor = state.diffEditor.getModifiedEditor();
       var selection = editor.getSelection();
       var cursorLine = selection ? selection.startLineNumber : 1;
 
-      if (direction === 'next') {
-        // Find the first hunk whose start line is strictly after the cursor
+      if (curIdx >= 0) {
+        // Cursor inside a hunk — step one hunk in the requested direction.
+        target = direction === 'next' ? curIdx + 1 : curIdx - 1;
+      } else if (direction === 'next') {
+        // Cursor between hunks — first hunk starting strictly after the cursor.
         for (var i = 0; i < state.hunks.length; i++) {
           var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
           if (!m) continue;
           var newStart = parseInt(m[1], 10);
-          if (newStart > cursorLine) {
-            state.currentHunkIndex = i;
-            scrollToHunk(i);
-            return;
-          }
+          if (newStart > cursorLine) { target = i; break; }
         }
-        // Cursor is past all hunks — stay at last hunk
       } else {
-        // Find the last hunk whose end line is strictly before the cursor
-        var target = -1;
-        for (var i = 0; i < state.hunks.length; i++) {
+        // Cursor between hunks — last hunk starting strictly before the cursor.
+        for (var i = state.hunks.length - 1; i >= 0; i--) {
           var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
           if (!m) continue;
           var newStart = parseInt(m[1], 10);
-          var newCount = m[2] ? parseInt(m[2], 10) : 1;
-          var newEnd = newStart + newCount - 1;
-          if (newEnd < cursorLine) {
-            target = i;
-          } else {
-            break;
-          }
+          if (newStart < cursorLine) { target = i; break; }
         }
-        if (target >= 0) {
-          state.currentHunkIndex = target;
-          scrollToHunk(target);
-        }
-        // Cursor is before all hunks — stay at first hunk
       }
+
+      if (target < 0 || target >= state.hunks.length) return; // already at edge
+      state.currentHunkIndex = target;
+      scrollToHunk(target);
     }
 
     function scrollToHunk(index) {
@@ -654,6 +779,25 @@
         endColumn: 1
       });
       modEditor.focus();
+
+      // If the target line is already fully inside the visible viewport,
+      // keep the scrollbar where it is — only scroll when it's off-screen.
+      var visible = modEditor.getVisibleRanges();
+      var isVisible = false;
+      for (var v = 0; v < visible.length; v++) {
+        if (newStart >= visible[v].startLineNumber && newStart <= visible[v].endLineNumber) {
+          isVisible = true;
+          break;
+        }
+      }
+      if (isVisible) {
+        vscode.postMessage({
+          command: 'log',
+          text: 'Hunk ' + (index + 1) + '/' + state.hunks.length
+            + ' line ' + newStart + ' already visible — no scroll'
+        });
+        return;
+      }
 
       // Use getTopForLineNumber + setScrollTop for reliable scrolling
       var lineTop = modEditor.getTopForLineNumber(newStart);
@@ -698,17 +842,48 @@
         return;
       }
 
-      // Current hunk from cursor position
+      // diffEditor may not exist yet during the first render (updateToolbar
+      // runs before the editor is created) — guard access and default the
+      // cursor to line 1; the real position is applied right after creation.
+      var editor = state.diffEditor ? state.diffEditor.getModifiedEditor() : null;
+      var selection = editor ? editor.getSelection() : null;
+      var cursorLine = selection ? selection.startLineNumber : 1;
+
       var curIdx = findCurrentHunkIndex();
       if (curIdx >= 0) {
         state.currentHunkIndex = curIdx;
       }
 
-      prevBtn.disabled = curIdx <= 0;
-      nextBtn.disabled = curIdx >= state.hunks.length - 1;
-      posSpan.textContent = curIdx >= 0
-        ? (curIdx + 1) + ' / ' + state.hunks.length
-        : state.hunks.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
+      if (curIdx >= 0) {
+        // Cursor is inside a hunk — only enable the direction with a real neighbor
+        prevBtn.disabled = curIdx <= 0;
+        nextBtn.disabled = curIdx >= state.hunks.length - 1;
+        posSpan.textContent = (curIdx + 1) + ' / ' + state.hunks.length;
+        return;
+      }
+
+      // Cursor is outside every hunk — keep nav buttons enabled toward
+      // whichever side actually contains a hunk, so a single hunk (which
+      // otherwise disables both buttons) can still be jumped to.
+      var firstStart = Infinity;
+      var lastEnd = -Infinity;
+      for (var i = 0; i < state.hunks.length; i++) {
+        var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+        if (!m) continue;
+        var newStart = parseInt(m[1], 10);
+        var newCount = m[2] ? parseInt(m[2], 10) : 1;
+        if (i === 0) firstStart = newStart;
+        lastEnd = newStart + newCount - 1;
+      }
+
+      // Matches navigateHunk: prev needs a hunk ending before cursor,
+      // next needs a hunk starting after cursor.
+      prevBtn.disabled = cursorLine <= firstStart;
+      nextBtn.disabled = cursorLine >= lastEnd;
+      // If we have navigated to a specific hunk, show its actual index rather
+      // than "?" even when the cursor is momentarily outside every hunk range.
+      var shown = (state.currentHunkIndex >= 0) ? (state.currentHunkIndex + 1) : '?';
+      posSpan.textContent = shown + ' / ' + state.hunks.length;
     }
 
     // ==================================================================
@@ -787,11 +962,11 @@
     document.getElementById('btn-next-hunk').addEventListener('click', function () {
       navigateHunk('next');
     });
-    document.getElementById('btn-accept-all').addEventListener('click', function () {
-      vscode.postMessage({ command: 'acceptAll' });
+    document.getElementById('btn-keep-all').addEventListener('click', function () {
+      vscode.postMessage({ command: 'keepAll' });
     });
-    document.getElementById('btn-deny-all').addEventListener('click', function () {
-      vscode.postMessage({ command: 'denyAll' });
+    document.getElementById('btn-undo-all').addEventListener('click', function () {
+      vscode.postMessage({ command: 'undoAll' });
     });
 
     // ==================================================================
@@ -809,7 +984,7 @@
         case 'allProcessed':
           document.getElementById('footer-text').textContent = t('allProcessed', 'All changes processed.');
           document.getElementById('hunk-pos').textContent = '-';
-          disposeContentWidgets();
+          clearHunkButtons();
           break;
         case 'navigateHunk':
           navigateHunk(msg.direction);
@@ -819,6 +994,18 @@
           break;
         case 'openCurrentFile':
           openCurrentFile();
+          break;
+        case 'triggerSave':
+          // Extension asked us to save (Ctrl+S / File>Save while this panel is focused).
+          // Only save if there is a modified model to persist.
+          if (state.modifiedModel) {
+            // getValue() with no arg (TextDefined) keeps the model's own line
+            // ending (LF vs CRLF), so no EOL conversion is needed here.
+            vscode.postMessage({
+              command: 'saveFile',
+              content: state.modifiedModel.getValue()
+            });
+          }
           break;
       }
     });

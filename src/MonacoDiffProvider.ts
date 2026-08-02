@@ -17,6 +17,9 @@ export class MonacoDiffProvider {
   private _currentHunks: HunkData[] = [];
   private _webviewReady: boolean = false;
 
+  /** Base panel title (without the dirty marker). Appended with ' ●' when dirty. */
+  private _titleBase: string = '';
+
   /** Cached data for when the webview sends 'ready' */
   private _pendingData: {
     file: string;
@@ -104,6 +107,7 @@ export class MonacoDiffProvider {
         this._currentHunks = [];
         this._pendingData = null;
         this._webviewReady = false;
+        this._titleBase = '';
       });
 
       this._panel.webview.onDidReceiveMessage((msg) => {
@@ -118,8 +122,9 @@ export class MonacoDiffProvider {
       this._panel.webview.html = this._readTemplate();
     }
 
-    // Update title
-    this._panel.title = `CC Diff: ${path.basename(filePath)}`;
+    // Update title (keep base without dirty marker; a fresh file is clean)
+    this._titleBase = `CC Diff: ${path.basename(filePath)}`;
+    this._panel.title = this._titleBase;
     this._currentFile = filePath;
     this._currentHunks = hunks;
 
@@ -131,8 +136,8 @@ export class MonacoDiffProvider {
     this._panel.reveal();
   }
 
-  async acceptAll(filePath: string): Promise<void> {
-    this._snapshotManager.acceptAll(filePath);
+  async keepAll(filePath: string): Promise<void> {
+    this._snapshotManager.keepAll(filePath);
     if (this._currentFile === filePath) {
       this._panel?.webview.postMessage({ command: 'allProcessed' });
       this._panel?.dispose(); // onDidDispose cleans up state
@@ -140,8 +145,8 @@ export class MonacoDiffProvider {
     }
   }
 
-  async denyAll(filePath: string): Promise<void> {
-    const result = this._snapshotManager.denyAll(filePath, this._workspaceRoot);
+  async undoAll(filePath: string): Promise<void> {
+    const result = this._snapshotManager.undoAll(filePath, this._workspaceRoot);
     if (!result.success) {
       vscode.window.showErrorMessage(
         vscode.l10n.t('CC Diff: Failed to revert "{0}" — {1}', filePath, result.error || '')
@@ -166,6 +171,7 @@ export class MonacoDiffProvider {
     }
     this._currentFile = '';
     this._currentHunks = [];
+    this._titleBase = '';
   }
 
   /** Navigate to previous/next hunk in the webview */
@@ -186,6 +192,15 @@ export class MonacoDiffProvider {
     this._panel.webview.postMessage({ command: 'openCurrentFile' });
   }
 
+  /**
+   * Trigger save from the extension side (bound to the built-in Ctrl+S / File>Save).
+   * Asks the webview for the modified model content, which replies with 'saveFile'.
+   */
+  save(): void {
+    if (!this._panel || !this._currentFile) return;
+    this._panel.webview.postMessage({ command: 'triggerSave' });
+  }
+
   // ------------------------------------------------------------------
   // Message handling
   // ------------------------------------------------------------------
@@ -197,18 +212,18 @@ export class MonacoDiffProvider {
         this._sendPendingIfReady();
         break;
 
-      case 'acceptHunk': {
+      case 'keepHunk': {
         const hunk = this._currentHunks.find(h => h.id === msg.hunkId);
         if (!hunk) return;
 
-        const result = this._snapshotManager.acceptHunk(
+        const result = this._snapshotManager.keepHunk(
           this._currentFile,
           hunk,
           this._workspaceRoot
         );
         if (!result.success) {
           vscode.window.showErrorMessage(
-            vscode.l10n.t('CC Diff: Failed to accept hunk — {0}', result.error || '')
+            vscode.l10n.t('CC Diff: Failed to keep hunk — {0}', result.error || '')
           );
           return;
         }
@@ -216,18 +231,18 @@ export class MonacoDiffProvider {
         break;
       }
 
-      case 'denyHunk': {
+      case 'undoHunk': {
         const hunk = this._currentHunks.find(h => h.id === msg.hunkId);
         if (!hunk) return;
 
-        const result = this._snapshotManager.denyHunk(
+        const result = this._snapshotManager.undoHunk(
           this._currentFile,
           hunk,
           this._workspaceRoot
         );
         if (!result.success) {
           vscode.window.showErrorMessage(
-            vscode.l10n.t('CC Diff: Failed to deny hunk — {0}', result.error || '')
+            vscode.l10n.t('CC Diff: Failed to undo hunk — {0}', result.error || '')
           );
           return;
         }
@@ -235,12 +250,35 @@ export class MonacoDiffProvider {
         break;
       }
 
-      case 'acceptAll':
-        await this.acceptAll(this._currentFile);
+      case 'keepAll':
+        await this.keepAll(this._currentFile);
         break;
 
-      case 'denyAll':
-        await this.denyAll(this._currentFile);
+      case 'undoAll':
+        await this.undoAll(this._currentFile);
+        break;
+
+      case 'saveFile': {
+        const absPath = path.resolve(this._workspaceRoot, this._currentFile);
+        try {
+          fs.mkdirSync(path.dirname(absPath), { recursive: true });
+          fs.writeFileSync(absPath, msg.content, 'utf8');
+          this._outputChannel.appendLine(
+            `[MonacoDiffProvider] Saved "${this._currentFile}" from webview`
+          );
+          // Recompute hunks (snapshot vs updated file) and refresh the diff view
+          this._refreshDiff();
+        } catch (err: any) {
+          vscode.window.showErrorMessage(
+            vscode.l10n.t('CC Diff: Failed to save "{0}" — {1}', this._currentFile, err.message)
+          );
+        }
+        break;
+      }
+
+      case 'dirtyChange':
+        // Reflect unsaved-edit state in the panel title (like the editor dirty dot)
+        this._setDirtyTitle(!!msg.dirty);
         break;
 
       case 'log':
@@ -335,14 +373,20 @@ export class MonacoDiffProvider {
     });
   }
 
+  /** Show/hide the unsaved-edits marker (' ●') in the panel title */
+  private _setDirtyTitle(dirty: boolean): void {
+    if (!this._panel || !this._titleBase) return;
+    this._panel.title = dirty ? `${this._titleBase} ●` : this._titleBase;
+  }
+
   private buildI18nScript(): string {
     const strings: Record<string, string> = {
       '@@locale': vscode.env.language,
       loading: vscode.l10n.t('Loading diff editor...'),
-      acceptAll: vscode.l10n.t('Accept All'),
-      denyAll: vscode.l10n.t('Deny All'),
-      accept: vscode.l10n.t('Accept'),
-      deny: vscode.l10n.t('Deny'),
+      keepAll: vscode.l10n.t('Keep All'),
+      undoAll: vscode.l10n.t('Undo All'),
+      keep: vscode.l10n.t('Keep'),
+      undo: vscode.l10n.t('Undo'),
       hunksRemaining: vscode.l10n.t('hunk(s) remaining'),
       allProcessed: vscode.l10n.t('All changes processed.'),
     };

@@ -2,7 +2,8 @@
   "name": "cc-diff",
   "displayName": "%cc-diff.displayName%",
   "description": "%cc-diff.description%",
-  "version": "0.1.2",
+  "version": "0.2.0",
+  "license": "MIT",
   "icon": "media/icon.png",
   "publisher": "cc-diff",
   "repository": {
@@ -27,14 +28,14 @@
         "category": "CC Diff"
       },
       {
-        "command": "cc-diff.acceptAllFileEditor",
-        "title": "%cc-diff.command.acceptAllFileEditor%",
+        "command": "cc-diff.keepAllFileEditor",
+        "title": "%cc-diff.command.keepAllFileEditor%",
         "icon": "$(check-all)",
         "category": "CC Diff"
       },
       {
-        "command": "cc-diff.denyAllFileEditor",
-        "title": "%cc-diff.command.denyAllFileEditor%",
+        "command": "cc-diff.undoAllFileEditor",
+        "title": "%cc-diff.command.undoAllFileEditor%",
         "icon": "$(close-all)",
         "category": "CC Diff"
       },
@@ -61,6 +62,20 @@
         "title": "%cc-diff.command.openCurrentFile%",
         "icon": "$(go-to-file)",
         "category": "CC Diff"
+      },
+      {
+        "command": "cc-diff.saveDiff",
+        "title": "%cc-diff.command.saveDiff%",
+        "icon": "$(save)",
+        "category": "CC Diff"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "cc-diff.saveDiff",
+        "key": "ctrl+s",
+        "mac": "cmd+s",
+        "when": "activeWebviewPanelId == cc-diff.monacoDiff"
       }
     ],
     "menus": {

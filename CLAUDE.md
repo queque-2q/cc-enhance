@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-cc-diff 是一个 VSCode 扩展，在 Claude Code 对话结束后自动展示文件修改 diff，提供文件级别和 Hunk 级别的 Accept（接受）/ Deny（还原）控制，类似 Copilot 的 diff 功能。
+cc-diff 是一个 VSCode 扩展，在 Claude Code 对话结束后自动展示文件修改 diff，提供文件级别和 Hunk 级别的 Keep（接受）/ Undo（还原）控制，类似 Copilot 的 diff 功能。
 
 ## 架构
 
@@ -16,7 +16,7 @@ session-end.js   ──patch──▶  snapshots/patches/              ├─ Di
 ```
 
 - **Hook 脚本** (CJS, Node.js)：PreToolUse 保存文件快照，SessionEnd 计算 unified diff → 扁平 patch JSON
-- **VSCode 扩展** (TypeScript)：监听 `index.json` 信号文件 → 侧边栏 Webview 展示 diff → Accept/Deny
+- **VSCode 扩展** (TypeScript)：监听 `index.json` 信号文件 → 侧边栏 Webview 展示 diff → Keep/Undo
 - **通信方式**：通过 `<workspace>/.claude/cc-diff/` 目录进行文件系统通信
 
 ## 数据模型
@@ -60,7 +60,7 @@ powershell -File scripts/package.ps1 -SkipTests # 跳过测试
 | 文件 | 用途 |
 |------|------|
 | `src/extension.ts` | 扩展入口：激活、命令注册、监听 `index.json` |
-| `src/DiffManager.ts` | 核心状态管理：加载 patch、Accept/Deny、git apply --reverse |
+| `src/DiffManager.ts` | 核心状态管理：加载 patch、Keep/Undo、git apply --reverse |
 | `src/WebviewProvider.ts` | 侧边栏 Webview UI（HTML/CSS/JS 内联） |
 | `src/HooksManager.ts` | Hook 部署和自动更新 |
 | `hooks/pre-tool-use.js` | PreToolUse hook：编辑前保存快照 |
@@ -73,7 +73,7 @@ powershell -File scripts/package.ps1 -SkipTests # 跳过测试
 1. Claude Code 编辑文件前 → `pre-tool-use.js` 保存原始内容到 `.claude/cc-diff/snapshots/<session>/`
 2. 会话结束 → `session-end.js` 对比快照和当前文件，生成 unified diff → 写入 `patches/<timestamp>-<sessionId>-<safeFile>.patch.json` + 更新 `patches/index.json`
 3. 扩展的 `FileSystemWatcher` 检测到 `index.json` 变化 → `DiffManager.loadPatches()` 加载数据 → `WebviewProvider.refresh()` 刷新 UI
-4. 用户 Accept → 仅标记状态；Deny → `git apply --reverse` 还原修改
+4. 用户 Keep → 仅标记状态；Undo → `git apply --reverse` 还原修改
 5. 同一文件跨多个 session 的修改按时间顺序（最新→最旧）reverse，保证 context 正确
 
 ## 技术栈

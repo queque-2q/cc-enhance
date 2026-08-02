@@ -1,13 +1,14 @@
 {
   "cc-diff.command.setupHooks": "Install Hook Scripts",
-  "cc-diff.command.acceptAllFileEditor": "Accept All",
-  "cc-diff.command.denyAllFileEditor": "Deny All",
+  "cc-diff.command.keepAllFileEditor": "Keep All",
+  "cc-diff.command.undoAllFileEditor": "Undo All",
   "cc-diff.command.prevHunk": "Previous Hunk",
   "cc-diff.command.nextHunk": "Next Hunk",
-  "cc-diff.command.toggleDiffMode": "Toggle Diff Mode",
+  "cc-diff.command.toggleDiffMode": "切换双列/单列模式",
   "cc-diff.command.openCurrentFile": "Open File",
+  "cc-diff.command.saveDiff": "Save",
   "cc-diff.viewContainer.title": "CC Diff",
   "cc-diff.view.name": "Changes",
   "cc-diff.displayName": "CC Diff",
-  "cc-diff.description": "Show file diffs after Claude Code conversations with Accept/Deny controls"
+  "cc-diff.description": "Show file diffs after Claude Code conversations with Keep/Undo controls"
 }

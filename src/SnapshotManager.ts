@@ -13,7 +13,7 @@ export interface HunkData {
   patch: string;
 }
 
-export type FileStatus = 'pending' | 'partial' | 'accepted';
+export type FileStatus = 'pending' | 'partial' | 'keeped';
 
 export interface TrackedFile {
   file: string;
@@ -279,7 +279,7 @@ export class SnapshotManager {
       let stdout: string;
       try {
         stdout = execSync(
-          `git diff -b --no-index --no-color -U1 "a/${posixPath}" "b/${posixPath}"`,
+          `git diff --no-index --no-color -U0 "a/${posixPath}" "b/${posixPath}"`,
           { encoding: 'utf8', stdio: 'pipe', timeout: 10000, cwd: tmpDir, windowsHide: true }
         );
       } catch (e: any) {
@@ -399,10 +399,10 @@ export class SnapshotManager {
   // ------------------------------------------------------------------
 
   /**
-   * Accept a hunk: forward-apply the hunk patch to the snapshot.
+   * Keep a hunk: forward-apply the hunk patch to the snapshot.
    * If no remaining diffs exist after this, clean up the snapshot.
    */
-  acceptHunk(filePath: string, hunk: HunkData, workspaceRoot: string): { success: boolean; error?: string } {
+  keepHunk(filePath: string, hunk: HunkData, workspaceRoot: string): { success: boolean; error?: string } {
     const entry = this.getFileEntry(filePath);
     if (!entry) return { success: false, error: 'File not tracked' };
 
@@ -413,7 +413,7 @@ export class SnapshotManager {
     // Forward-apply hunk to snapshot content
     const result = this.applyHunkToContent(currentContent, filePath, hunk.patch, /* reverse */ false);
     if (!result.success) {
-      this.logger(`[acceptHunk] FAILED for "${filePath}" hunk ${hunk.id}: ${result.error}`);
+      this.logger(`[keepHunk] FAILED for "${filePath}" hunk ${hunk.id}: ${result.error}`);
       return { success: false, error: result.error };
     }
 
@@ -423,28 +423,28 @@ export class SnapshotManager {
       fs.writeFileSync(snapPath, result.content!, 'utf8');
     }
 
-    // Check if all changes are now accepted (snapshot matches current file)
+    // Check if all changes are now keeped (snapshot matches current file)
     const absPath = path.resolve(workspaceRoot, filePath);
     let workspaceContent = '';
     try { workspaceContent = fs.readFileSync(absPath, 'utf8'); } catch {}
 
     if (result.content === workspaceContent) {
-      // All changes accepted — clean up
+      // All changes keeped — clean up
       this.removeFromIndex(filePath);
       this.files.delete(entry.file);
       try { if (snapPath) fs.unlinkSync(snapPath); } catch {}
-      this.logger(`[acceptHunk] "${filePath}" — all changes accepted, cleaned up`);
+      this.logger(`[keepHunk] "${filePath}" — all changes keeped, cleaned up`);
     }
 
     return { success: true };
   }
 
   /**
-   * Deny a hunk: reverse-apply the hunk patch to the current workspace file.
+   * Undo a hunk: reverse-apply the hunk patch to the current workspace file.
    * Does NOT preserve user manual edits — applies the original hunk in reverse directly.
    * If no remaining diffs exist after this, clean up the snapshot.
    */
-  denyHunk(filePath: string, hunk: HunkData, workspaceRoot: string): { success: boolean; error?: string } {
+  undoHunk(filePath: string, hunk: HunkData, workspaceRoot: string): { success: boolean; error?: string } {
     const entry = this.getFileEntry(filePath);
     if (!entry) return { success: false, error: 'File not tracked' };
 
@@ -461,7 +461,7 @@ export class SnapshotManager {
     // Reverse-apply hunk to current file content
     const result = this.applyHunkToContent(currentContent, filePath, hunk.patch, /* reverse */ true);
     if (!result.success) {
-      this.logger(`[denyHunk] FAILED for "${filePath}" hunk ${hunk.id}: ${result.error}`);
+      this.logger(`[undoHunk] FAILED for "${filePath}" hunk ${hunk.id}: ${result.error}`);
       return { success: false, error: result.error };
     }
 
@@ -484,7 +484,7 @@ export class SnapshotManager {
       this.files.delete(entry.file);
       const snapPath = this.getSnapshotPath(filePath);
       try { fs.unlinkSync(snapPath); } catch {}
-      this.logger(`[denyHunk] "${filePath}" — all changes reverted, cleaned up`);
+      this.logger(`[undoHunk] "${filePath}" — all changes reverted, cleaned up`);
     }
 
     return { success: true };
@@ -495,9 +495,9 @@ export class SnapshotManager {
   // ------------------------------------------------------------------
 
   /**
-   * Accept all changes for a file: delete the snapshot, keep current file.
+   * Keep all changes for a file: delete the snapshot, keep current file.
    */
-  acceptAll(filePath: string): void {
+  keepAll(filePath: string): void {
     const entry = this.getFileEntry(filePath);
     if (!entry) return;
 
@@ -506,13 +506,13 @@ export class SnapshotManager {
 
     this.removeFromIndex(filePath);
     this.files.delete(entry.file);
-    this.logger(`[acceptAll] "${filePath}" — snapshot deleted`);
+    this.logger(`[keepAll] "${filePath}" — snapshot deleted`);
   }
 
   /**
-   * Deny all changes for a file: overwrite current file with snapshot content.
+   * Undo all changes for a file: overwrite current file with snapshot content.
    */
-  denyAll(filePath: string, workspaceRoot: string): { success: boolean; error?: string } {
+  undoAll(filePath: string, workspaceRoot: string): { success: boolean; error?: string } {
     const entry = this.getFileEntry(filePath);
     if (!entry) return { success: false, error: 'File not tracked' };
 
@@ -525,12 +525,12 @@ export class SnapshotManager {
       // Both sides empty — nothing to do, just clean up
       this.removeFromIndex(filePath);
       this.files.delete(entry.file);
-      this.logger(`[denyAll] "${filePath}" — nothing to revert, cleaned up`);
+      this.logger(`[undoAll] "${filePath}" — nothing to revert, cleaned up`);
       return { success: true };
     }
 
     if (snapshotContent === '') {
-      // File was newly created — deny means delete the file
+      // File was newly created — undo means delete the file
       try {
         fs.unlinkSync(absPath);
       } catch (e: any) {
@@ -552,7 +552,7 @@ export class SnapshotManager {
 
     this.removeFromIndex(filePath);
     this.files.delete(entry.file);
-    this.logger(`[denyAll] "${filePath}" — reverted to snapshot, cleaned up`);
+    this.logger(`[undoAll] "${filePath}" — reverted to snapshot, cleaned up`);
 
     return { success: true };
   }
