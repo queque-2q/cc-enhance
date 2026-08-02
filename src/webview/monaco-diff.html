@@ -252,7 +252,7 @@
       originalModel: null,
       modifiedModel: null,
       mode: 'side-by-side',  // 'side-by-side' | 'inline'
-      currentHunkIndex: -1,  // 0-based index into hunks array, -1 = none
+      currentHunkIndex: -1,  // 0-based index into changes array, -1 = none
       dirty: false,          // true when modified model differs from disk
       _syncing: false        // true while we programmatically setValue (ignore change events)
     };
@@ -402,7 +402,6 @@
 
       // Update UI
       document.getElementById('filename').textContent = 'CC Diff: ' + (data.file || '');
-      updateToolbar(state.changes.length);
 
       var original = data.original || '';
       var modified = data.modified || '';
@@ -491,6 +490,7 @@
 
       // Populate changes from Monaco AFTER the editor and models exist
       state.changes = getChanges();
+      updateToolbar(state.changes.length);
 
       // Create overlay buttons for each hunk
       for (var i = 0; i < state.changes.length; i++) {
