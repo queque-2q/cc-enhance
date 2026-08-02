@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
+import { type LineChange, extractLines, replaceLineRange } from './lineOps';
 
 // ======================================================================
 // Types
@@ -399,36 +400,40 @@ export class SnapshotManager {
   // ------------------------------------------------------------------
 
   /**
-   * Keep a hunk: forward-apply the hunk patch to the snapshot.
-   * If no remaining diffs exist after this, clean up the snapshot.
+   * Keep a hunk: accept the change into the snapshot by replacing the
+   * snapshot's original-range lines with the current workspace lines from
+   * the modified range. The workspace file is unchanged.
+   * If the snapshot then equals the workspace, clean up the entry.
    */
-  keepHunk(filePath: string, hunk: HunkData, workspaceRoot: string): { success: boolean; error?: string } {
+  keepHunk(filePath: string, change: LineChange, workspaceRoot: string): { success: boolean; error?: string } {
     const entry = this.getFileEntry(filePath);
     if (!entry) return { success: false, error: 'File not tracked' };
 
     const snapPath = this.getSnapshotPath(filePath);
-    // Treat missing snapshot as empty (file creation scenario)
-    const currentContent = this.getSnapshotContent(filePath) ?? '';
+    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
 
-    // Forward-apply hunk to snapshot content
-    const result = this.applyHunkToContent(currentContent, filePath, hunk.patch, /* reverse */ false);
-    if (!result.success) {
-      this.logger(`[keepHunk] FAILED for "${filePath}" hunk ${hunk.id}: ${result.error}`);
-      return { success: false, error: result.error };
-    }
-
-    // Write updated snapshot (create snapshots dir if needed)
-    if (snapPath) {
-      fs.mkdirSync(path.dirname(snapPath), { recursive: true });
-      fs.writeFileSync(snapPath, result.content!, 'utf8');
-    }
-
-    // Check if all changes are now keeped (snapshot matches current file)
     const absPath = path.resolve(workspaceRoot, filePath);
     let workspaceContent = '';
     try { workspaceContent = fs.readFileSync(absPath, 'utf8'); } catch {}
 
-    if (result.content === workspaceContent) {
+    const replacement = extractLines(
+      workspaceContent,
+      change.modifiedStartLineNumber,
+      change.modifiedEndLineNumber
+    );
+    const newSnapshot = replaceLineRange(
+      snapshotContent,
+      change.originalStartLineNumber,
+      change.originalEndLineNumber,
+      replacement
+    );
+
+    if (snapPath) {
+      fs.mkdirSync(path.dirname(snapPath), { recursive: true });
+      fs.writeFileSync(snapPath, newSnapshot, 'utf8');
+    }
+
+    if (newSnapshot === workspaceContent) {
       // All changes keeped — clean up
       this.removeFromIndex(filePath);
       this.files.delete(entry.file);
@@ -440,44 +445,41 @@ export class SnapshotManager {
   }
 
   /**
-   * Undo a hunk: reverse-apply the hunk patch to the current workspace file.
-   * Does NOT preserve user manual edits — applies the original hunk in reverse directly.
-   * If no remaining diffs exist after this, clean up the snapshot.
+   * Undo a hunk: revert the change in the workspace by replacing the
+   * workspace's modified-range lines with the snapshot's original-range
+   * lines. The snapshot is unchanged.
+   * If the workspace then equals the snapshot, clean up the entry.
    */
-  undoHunk(filePath: string, hunk: HunkData, workspaceRoot: string): { success: boolean; error?: string } {
+  undoHunk(filePath: string, change: LineChange, workspaceRoot: string): { success: boolean; error?: string } {
     const entry = this.getFileEntry(filePath);
     if (!entry) return { success: false, error: 'File not tracked' };
 
     const absPath = path.resolve(workspaceRoot, filePath);
-
-    // Read current file content — empty if file doesn't exist (deletion scenario)
     let currentContent: string;
-    try {
-      currentContent = fs.readFileSync(absPath, 'utf8');
-    } catch {
-      currentContent = '';
-    }
+    try { currentContent = fs.readFileSync(absPath, 'utf8'); } catch { currentContent = ''; }
 
-    // Reverse-apply hunk to current file content
-    const result = this.applyHunkToContent(currentContent, filePath, hunk.patch, /* reverse */ true);
-    if (!result.success) {
-      this.logger(`[undoHunk] FAILED for "${filePath}" hunk ${hunk.id}: ${result.error}`);
-      return { success: false, error: result.error };
-    }
+    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
 
-    // Write reverted content back to workspace file
-    const revertedContent = result.content!;
+    const replacement = extractLines(
+      snapshotContent,
+      change.originalStartLineNumber,
+      change.originalEndLineNumber
+    );
+    const revertedContent = replaceLineRange(
+      currentContent,
+      change.modifiedStartLineNumber,
+      change.modifiedEndLineNumber,
+      replacement
+    );
+
     if (revertedContent === '') {
-      // Result is empty — delete the file (creation was fully denied)
-      try { fs.unlinkSync(absPath); } catch { /* file already gone */ }
+      // Whole file reverted to empty — delete it (file creation denied)
+      try { fs.unlinkSync(absPath); } catch { /* already gone */ }
     } else {
       fs.mkdirSync(path.dirname(absPath), { recursive: true });
       fs.writeFileSync(absPath, revertedContent, 'utf8');
     }
 
-    // Check if all changes are now denied (snapshot matches current file)
-    // Treat missing snapshot as empty (file creation scenario)
-    const snapshotContent = this.getSnapshotContent(filePath) ?? '';
     if (snapshotContent === revertedContent) {
       // All changes reverted — clean up
       this.removeFromIndex(filePath);

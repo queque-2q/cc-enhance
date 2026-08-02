@@ -247,7 +247,7 @@
     // ==================================================================
     var state = {
       file: '',
-      hunks: [],
+      changes: [],   // Monaco LineChange[] — the single source of truth
       diffEditor: null,
       originalModel: null,
       modifiedModel: null,
@@ -397,13 +397,12 @@
       }
 
       state.file = data.file;
-      state.hunks = data.hunks;
 
       var container = document.getElementById('editor-container');
 
       // Update UI
       document.getElementById('filename').textContent = 'CC Diff: ' + (data.file || '');
-      updateToolbar(data.hunks.length);
+      updateToolbar(state.changes.length);
 
       var original = data.original || '';
       var modified = data.modified || '';
@@ -490,9 +489,12 @@
       // Model is now synced to disk content — clear any dirty marker
       setDirty(false);
 
+      // Populate changes from Monaco AFTER the editor and models exist
+      state.changes = getChanges();
+
       // Create overlay buttons for each hunk
-      for (var i = 0; i < data.hunks.length; i++) {
-        addHunkButtons(data.hunks[i]);
+      for (var i = 0; i < state.changes.length; i++) {
+        addHunkButtons(state.changes[i]);
       }
 
       // Initial position sync (after Monaco has laid out)
@@ -502,20 +504,17 @@
 
       // Update footer
       document.getElementById('footer-text').textContent =
-        data.hunks.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
+        state.changes.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
 
       // Set cursor to first hunk start line (avoid default 1,1 position)
-      if (data.hunks.length > 0) {
-        var firstHunkM = data.hunks[0].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-        if (firstHunkM) {
-          var firstLine = parseInt(firstHunkM[1], 10);
-          state.diffEditor.getModifiedEditor().setSelection({
-            startLineNumber: firstLine,
-            startColumn: 1,
-            endLineNumber: firstLine,
-            endColumn: 1
-          });
-        }
+      if (state.changes.length > 0) {
+        var firstLine = changeAnchorLine(state.changes[0]);
+        state.diffEditor.getModifiedEditor().setSelection({
+          startLineNumber: firstLine,
+          startColumn: 1,
+          endLineNumber: firstLine,
+          endColumn: 1
+        });
       }
 
       // Initialize nav buttons
@@ -535,60 +534,41 @@
     var hunkOverlayRefs = []; // { el, lineNumber }
 
     /**
-     * Find the anchor line number in the modified editor for a hunk's buttons.
-     * - Hunks with additions: returns the line number of the first "+" line.
-     * - Deletion-only hunks: returns the first context line AFTER the deleted lines
-     *   (i.e. the first line that still exists in modified right after the deletions).
-     * - Pure deletion at end of file: returns newStart + newCount.
+     * Get the current diff changes from Monaco (the exact hunks it displays).
+     * Each change is normalized and given an `id` (array index).
      */
-    function findAnchorLine(hunk) {
-      var m = hunk.header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-      if (!m) return -1;
+    function getChanges() {
+      if (!state.diffEditor) return [];
+      var raw = state.diffEditor.getLineChanges();
+      if (!raw || !raw.length) return [];
+      return raw.map(function (c, i) {
+        return {
+          id: i,
+          originalStartLineNumber: c.originalStartLineNumber,
+          originalEndLineNumber: c.originalEndLineNumber,
+          modifiedStartLineNumber: c.modifiedStartLineNumber,
+          modifiedEndLineNumber: c.modifiedEndLineNumber
+        };
+      });
+    }
 
-      var newStart = parseInt(m[1], 10);
-      var newCount = m[2] ? parseInt(m[2], 10) : 1;
-      var patchLines = hunk.patch.split('\n');
-
-      // Remove trailing empty string from split
-      if (patchLines.length > 0 && patchLines[patchLines.length - 1] === '') {
-        patchLines.pop();
+    /** Map a change to the modified-side line its buttons/nav should anchor on. */
+    function changeAnchorLine(change) {
+      var modCount = state.modifiedModel ? state.modifiedModel.getLineCount() : 0;
+      var mStart = change.modifiedStartLineNumber;
+      var mEnd = change.modifiedEndLineNumber;
+      if (mStart <= mEnd && mStart >= 1) {
+        return Math.min(mStart, modCount);
       }
+      // Pure deletion: anchor at the deletion position, clamped to a real line.
+      return Math.max(1, Math.min(mStart, modCount));
+    }
 
-      var lineNum = newStart - 1; // line before hunk starts in modified
-      var foundLine = -1;
-      var hasSeenDeletion = false;
-
-      for (var i = 0; i < patchLines.length; i++) {
-        var line = patchLines[i];
-
-        // Skip header line
-        if (line.indexOf('@@') === 0) continue;
-
-        if (line.indexOf('+') === 0) {
-          // First addition — anchor right here
-          lineNum++;
-          foundLine = lineNum;
-          break;
-        } else if (line.indexOf('-') === 0) {
-          // Deletion — not in modified, don't increment lineNum
-          hasSeenDeletion = true;
-        } else {
-          // Context line (or "\ No newline...") — exists in modified
-          lineNum++;
-          if (hasSeenDeletion && foundLine < 0) {
-            // First context line that comes right after deletions
-            foundLine = lineNum;
-            break;
-          }
-        }
-      }
-
-      if (foundLine >= 0) {
-        return foundLine;
-      }
-
-      // Pure deletion at end of file (no context after): place after hunk
-      return newStart + newCount;
+    /** Roughly map a modified line number to an original line number. */
+    function mapModifiedToOriginal(modLine, change) {
+      var oStart = change.originalStartLineNumber;
+      var mStart = change.modifiedStartLineNumber;
+      return oStart + (modLine - mStart);
     }
 
     /** Get the layer div, creating it if needed */
@@ -597,8 +577,8 @@
     }
 
     /** Create DOM buttons for a single hunk and add them to the overlay layer */
-    function addHunkButtons(hunk) {
-      var lineNumber = findAnchorLine(hunk);
+    function addHunkButtons(change) {
+      var lineNumber = changeAnchorLine(change);
       if (lineNumber < 0) return;
 
       var layer = getHunkLayer();
@@ -606,15 +586,22 @@
 
       var el = document.createElement('div');
       el.className = 'hunk-actions';
-      el.setAttribute('data-hunk-id', hunk.id);
+      el.setAttribute('data-hunk-id', change.id);
       el.setAttribute('data-line', lineNumber);
+
+      var payload = {
+        originalStartLineNumber: change.originalStartLineNumber,
+        originalEndLineNumber: change.originalEndLineNumber,
+        modifiedStartLineNumber: change.modifiedStartLineNumber,
+        modifiedEndLineNumber: change.modifiedEndLineNumber
+      };
 
       var keepBtn = document.createElement('button');
       keepBtn.className = 'btn-hunk btn-keep';
       keepBtn.textContent = t('keep', 'Keep');
       keepBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        vscode.postMessage({ command: 'keepHunk', hunkId: hunk.id });
+        vscode.postMessage({ command: 'keepHunk', hunkId: change.id, change: payload });
       });
 
       var undoBtn = document.createElement('button');
@@ -622,7 +609,7 @@
       undoBtn.textContent = t('undo', 'Undo');
       undoBtn.addEventListener('click', function (e) {
         e.stopPropagation();
-        vscode.postMessage({ command: 'undoHunk', hunkId: hunk.id });
+        vscode.postMessage({ command: 'undoHunk', hunkId: change.id, change: payload });
       });
 
       el.appendChild(keepBtn);
@@ -689,43 +676,29 @@
     // Hunk navigation
     // ==================================================================
     function findCurrentHunkIndex() {
-      if (!state.diffEditor || state.hunks.length === 0) return -1;
+      if (!state.diffEditor || state.changes.length === 0) return -1;
       var editor = state.diffEditor.getModifiedEditor();
-
-      // Use cursor position, not visible ranges — cursor is set explicitly
-      // by scrollToHunk after each navigation, forming a reliable chain
       var selection = editor.getSelection();
       if (!selection) return -1;
       var cursorLine = selection.startLineNumber;
-
-      // Strictly inside a hunk — return its index, otherwise -1 (outside).
-      // The outside case is handled by updateNavButtons, which keeps nav
-      // buttons enabled toward whichever side actually contains a hunk.
-      for (var i = 0; i < state.hunks.length; i++) {
-        var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-        if (!m) continue;
-        var newStart = parseInt(m[1], 10);
-        var newCount = m[2] ? parseInt(m[2], 10) : 1;
-        var newEnd = newStart + newCount - 1;
-
-        if (newCount === 0) {
-          // Delete-only hunk: the new file has no lines for this region, so the
-          // new-file range [newStart, newEnd] is empty. Navigation anchors the
-          // cursor on newStart — treat that anchor line as "inside" the hunk.
-          if (cursorLine === newStart) return i;
-        } else if (cursorLine >= newStart && cursorLine <= newEnd) {
-          return i; // Cursor inside this hunk
+      var modCount = state.modifiedModel ? state.modifiedModel.getLineCount() : 0;
+      for (var i = 0; i < state.changes.length; i++) {
+        var c = state.changes[i];
+        if (c.modifiedStartLineNumber <= c.modifiedEndLineNumber) {
+          if (cursorLine >= c.modifiedStartLineNumber && cursorLine <= c.modifiedEndLineNumber) {
+            return i;
+          }
+        } else {
+          var anchor = Math.max(1, Math.min(c.modifiedStartLineNumber, modCount));
+          if (cursorLine === anchor) return i;
         }
       }
       return -1;
     }
 
     function navigateHunk(direction) {
-      if (!state.diffEditor || state.hunks.length === 0) return;
+      if (!state.diffEditor || state.changes.length === 0) return;
 
-      // Base navigation on the current hunk index when the cursor is inside a
-      // hunk. Line-range search is unreliable for delete-only hunks (their
-      // new-file range is empty), which used to make prev re-select itself.
       var curIdx = findCurrentHunkIndex();
       var target = -1;
 
@@ -734,58 +707,44 @@
       var cursorLine = selection ? selection.startLineNumber : 1;
 
       if (curIdx >= 0) {
-        // Cursor inside a hunk — step one hunk in the requested direction.
         target = direction === 'next' ? curIdx + 1 : curIdx - 1;
       } else if (direction === 'next') {
-        // Cursor between hunks — first hunk starting strictly after the cursor.
-        for (var i = 0; i < state.hunks.length; i++) {
-          var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-          if (!m) continue;
-          var newStart = parseInt(m[1], 10);
-          if (newStart > cursorLine) { target = i; break; }
+        for (var i = 0; i < state.changes.length; i++) {
+          var s = changeAnchorLine(state.changes[i]);
+          if (s > cursorLine) { target = i; break; }
         }
       } else {
-        // Cursor between hunks — last hunk starting strictly before the cursor.
-        for (var i = state.hunks.length - 1; i >= 0; i--) {
-          var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-          if (!m) continue;
-          var newStart = parseInt(m[1], 10);
-          if (newStart < cursorLine) { target = i; break; }
+        for (var i = state.changes.length - 1; i >= 0; i--) {
+          var s2 = changeAnchorLine(state.changes[i]);
+          if (s2 < cursorLine) { target = i; break; }
         }
       }
 
-      if (target < 0 || target >= state.hunks.length) return; // already at edge
+      if (target < 0 || target >= state.changes.length) return;
       state.currentHunkIndex = target;
       scrollToHunk(target);
     }
 
     function scrollToHunk(index) {
-      if (!state.diffEditor || index < 0 || index >= state.hunks.length) return;
+      if (!state.diffEditor || index < 0 || index >= state.changes.length) return;
 
-      var hunk = state.hunks[index];
-      var m = hunk.header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-      if (!m) return;
-
-      var newStart = parseInt(m[1], 10);
-
+      var change = state.changes[index];
       var modEditor = state.diffEditor.getModifiedEditor();
       var origEditor = state.diffEditor.getOriginalEditor();
+      var targetLine = changeAnchorLine(change);
 
-      // Set cursor on target line — this is the position indicator
       modEditor.setSelection({
-        startLineNumber: newStart,
+        startLineNumber: targetLine,
         startColumn: 1,
-        endLineNumber: newStart,
+        endLineNumber: targetLine,
         endColumn: 1
       });
       modEditor.focus();
 
-      // If the target line is already fully inside the visible viewport,
-      // keep the scrollbar where it is — only scroll when it's off-screen.
       var visible = modEditor.getVisibleRanges();
       var isVisible = false;
       for (var v = 0; v < visible.length; v++) {
-        if (newStart >= visible[v].startLineNumber && newStart <= visible[v].endLineNumber) {
+        if (targetLine >= visible[v].startLineNumber && targetLine <= visible[v].endLineNumber) {
           isVisible = true;
           break;
         }
@@ -793,19 +752,17 @@
       if (isVisible) {
         vscode.postMessage({
           command: 'log',
-          text: 'Hunk ' + (index + 1) + '/' + state.hunks.length
-            + ' line ' + newStart + ' already visible — no scroll'
+          text: 'Hunk ' + (index + 1) + '/' + state.changes.length
+            + ' line ' + targetLine + ' already visible — no scroll'
         });
         return;
       }
 
-      // Use getTopForLineNumber + setScrollTop for reliable scrolling
-      var lineTop = modEditor.getTopForLineNumber(newStart);
+      var lineTop = modEditor.getTopForLineNumber(targetLine);
       var viewHeight = modEditor.getLayoutInfo().height;
       modEditor.setScrollTop(Math.max(0, lineTop - viewHeight * 0.25));
 
-      // Also scroll original editor to roughly match
-      var origLine = mapModifiedToOriginal(newStart, hunk);
+      var origLine = mapModifiedToOriginal(targetLine, change);
       if (origLine > 0) {
         try {
           var origLineTop = origEditor.getTopForLineNumber(origLine);
@@ -815,19 +772,9 @@
 
       vscode.postMessage({
         command: 'log',
-        text: 'Nav to hunk ' + (index + 1) + '/' + state.hunks.length
-          + ' line ' + newStart + ' (scrollTop=' + Math.round(lineTop) + ')'
+        text: 'Nav to hunk ' + (index + 1) + '/' + state.changes.length
+          + ' line ' + targetLine + ' (scrollTop=' + Math.round(lineTop) + ')'
       });
-    }
-
-    /** Roughly map a modified line number back to an original line number using the hunk */
-    function mapModifiedToOriginal(modLine, hunk) {
-      var m = hunk.header.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-      if (!m) return -1;
-      var oldStart = parseInt(m[1], 10);
-      var newStart = parseInt(m[3], 10);
-      // Simple offset mapping
-      return oldStart + (modLine - newStart);
     }
 
     function updateNavButtons() {
@@ -835,16 +782,13 @@
       var nextBtn = document.getElementById('btn-next-hunk');
       var posSpan = document.getElementById('hunk-pos');
 
-      if (state.hunks.length === 0) {
+      if (state.changes.length === 0) {
         prevBtn.disabled = true;
         nextBtn.disabled = true;
         posSpan.textContent = '-';
         return;
       }
 
-      // diffEditor may not exist yet during the first render (updateToolbar
-      // runs before the editor is created) — guard access and default the
-      // cursor to line 1; the real position is applied right after creation.
       var editor = state.diffEditor ? state.diffEditor.getModifiedEditor() : null;
       var selection = editor ? editor.getSelection() : null;
       var cursorLine = selection ? selection.startLineNumber : 1;
@@ -852,38 +796,24 @@
       var curIdx = findCurrentHunkIndex();
       if (curIdx >= 0) {
         state.currentHunkIndex = curIdx;
-      }
-
-      if (curIdx >= 0) {
-        // Cursor is inside a hunk — only enable the direction with a real neighbor
         prevBtn.disabled = curIdx <= 0;
-        nextBtn.disabled = curIdx >= state.hunks.length - 1;
-        posSpan.textContent = (curIdx + 1) + ' / ' + state.hunks.length;
+        nextBtn.disabled = curIdx >= state.changes.length - 1;
+        posSpan.textContent = (curIdx + 1) + ' / ' + state.changes.length;
         return;
       }
 
-      // Cursor is outside every hunk — keep nav buttons enabled toward
-      // whichever side actually contains a hunk, so a single hunk (which
-      // otherwise disables both buttons) can still be jumped to.
       var firstStart = Infinity;
       var lastEnd = -Infinity;
-      for (var i = 0; i < state.hunks.length; i++) {
-        var m = state.hunks[i].header.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-        if (!m) continue;
-        var newStart = parseInt(m[1], 10);
-        var newCount = m[2] ? parseInt(m[2], 10) : 1;
-        if (i === 0) firstStart = newStart;
-        lastEnd = newStart + newCount - 1;
+      for (var i = 0; i < state.changes.length; i++) {
+        var a = changeAnchorLine(state.changes[i]);
+        if (i === 0) firstStart = a;
+        lastEnd = a;
       }
 
-      // Matches navigateHunk: prev needs a hunk ending before cursor,
-      // next needs a hunk starting after cursor.
       prevBtn.disabled = cursorLine <= firstStart;
       nextBtn.disabled = cursorLine >= lastEnd;
-      // If we have navigated to a specific hunk, show its actual index rather
-      // than "?" even when the cursor is momentarily outside every hunk range.
       var shown = (state.currentHunkIndex >= 0) ? (state.currentHunkIndex + 1) : '?';
-      posSpan.textContent = shown + ' / ' + state.hunks.length;
+      posSpan.textContent = shown + ' / ' + state.changes.length;
     }
 
     // ==================================================================

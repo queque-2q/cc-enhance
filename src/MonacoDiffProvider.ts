@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { SnapshotManager, type HunkData } from './SnapshotManager';
+import { SnapshotManager } from './SnapshotManager';
 
 /**
  * Manages a Monaco Diff Editor based WebviewPanel.
@@ -14,7 +14,6 @@ export class MonacoDiffProvider {
 
   private _panel: vscode.WebviewPanel | null = null;
   private _currentFile: string = '';
-  private _currentHunks: HunkData[] = [];
   private _webviewReady: boolean = false;
 
   /** Base panel title (without the dirty marker). Appended with ' ●' when dirty. */
@@ -25,7 +24,6 @@ export class MonacoDiffProvider {
     file: string;
     original: string;
     modified: string;
-    hunks: HunkData[];
   } | null = null;
 
   /** Called when all hunks in a file are processed */
@@ -72,9 +70,7 @@ export class MonacoDiffProvider {
       // File deleted — treat as empty
     }
 
-    // Compute hunks
-    const hunks = this._snapshotManager.computeDiff(filePath, this._workspaceRoot);
-    if (hunks.length === 0) {
+    if (snapshotContent === currentContent) {
       vscode.window.showInformationMessage(
         vscode.l10n.t('CC Diff: No changes to display for "{0}".', filePath)
       );
@@ -85,7 +81,6 @@ export class MonacoDiffProvider {
       file: filePath,
       original: snapshotContent,
       modified: currentContent,
-      hunks,
     };
 
     // Create or reuse panel
@@ -104,7 +99,6 @@ export class MonacoDiffProvider {
       this._panel.onDidDispose(() => {
         this._panel = null;
         this._currentFile = '';
-        this._currentHunks = [];
         this._pendingData = null;
         this._webviewReady = false;
         this._titleBase = '';
@@ -126,7 +120,6 @@ export class MonacoDiffProvider {
     this._titleBase = `CC Diff: ${path.basename(filePath)}`;
     this._panel.title = this._titleBase;
     this._currentFile = filePath;
-    this._currentHunks = hunks;
 
     // Send data only if webview is already ready (reused panel).
     // For new panels, wait for the 'ready' message from the webview.
@@ -170,7 +163,6 @@ export class MonacoDiffProvider {
       this._panel = null;
     }
     this._currentFile = '';
-    this._currentHunks = [];
     this._titleBase = '';
   }
 
@@ -213,12 +205,11 @@ export class MonacoDiffProvider {
         break;
 
       case 'keepHunk': {
-        const hunk = this._currentHunks.find(h => h.id === msg.hunkId);
-        if (!hunk) return;
+        if (!msg.change) return;
 
         const result = this._snapshotManager.keepHunk(
           this._currentFile,
-          hunk,
+          msg.change,
           this._workspaceRoot
         );
         if (!result.success) {
@@ -232,12 +223,11 @@ export class MonacoDiffProvider {
       }
 
       case 'undoHunk': {
-        const hunk = this._currentHunks.find(h => h.id === msg.hunkId);
-        if (!hunk) return;
+        if (!msg.change) return;
 
         const result = this._snapshotManager.undoHunk(
           this._currentFile,
-          hunk,
+          msg.change,
           this._workspaceRoot
         );
         if (!result.success) {
@@ -331,7 +321,6 @@ export class MonacoDiffProvider {
       file: data.file,
       original: data.original,
       modified: data.modified,
-      hunks: data.hunks,
     });
   }
 
@@ -350,9 +339,7 @@ export class MonacoDiffProvider {
       // File deleted
     }
 
-    const hunks = this._snapshotManager.computeDiff(this._currentFile, this._workspaceRoot);
-
-    if (hunks.length === 0) {
+    if (snapshotContent === currentContent) {
       // All processed
       this._panel?.webview.postMessage({ command: 'allProcessed' });
       if (this._panel) {
@@ -362,14 +349,11 @@ export class MonacoDiffProvider {
       return;
     }
 
-    this._currentHunks = hunks;
-
     this._panel?.webview.postMessage({
       command: 'diffUpdated',
       file: this._currentFile,
       original: snapshotContent,
       modified: currentContent,
-      hunks,
     });
   }
 
