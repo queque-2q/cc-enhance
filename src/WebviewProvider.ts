@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { SnapshotManager, type TrackedFile } from './SnapshotManager';
+import { SnapshotManager, type TrackedFile, buildBranchNotice } from './SnapshotManager';
 import { MonacoDiffProvider } from './MonacoDiffProvider';
 
 // ======================================================================
@@ -121,17 +121,9 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Collect unique branch names for the message
-    const branches = [...new Set(mismatched.map(f => f.branch).filter(Boolean))];
-    const branchList = branches.join(', ');
-    const fileList = mismatched.map(f => f.file).join('\n');
-
     const cleanUpLabel = vscode.l10n.t('Clean Up');
     const answer = await vscode.window.showWarningMessage(
-      vscode.l10n.t(
-        'Detected Git branch switch (current: `{0}`, snapshot belongs to: `{1}`).\n\n{2} file(s) from other branch — clean up?\n\n{3}',
-        currentBranch, branchList, mismatched.length, fileList
-      ),
+      buildBranchNotice(currentBranch, mismatched),
       { modal: true },
       cleanUpLabel
     );
@@ -141,7 +133,7 @@ export class WebviewProvider implements vscode.WebviewViewProvider {
         this._snapshotManager.removeTrackedFile(f.file);
       }
       this._outputChannel.appendLine(
-        `[WebviewProvider] Branch mismatch cleanup: removed ${mismatched.length} file(s) from branch(es) ${branchList}`
+        `[WebviewProvider] Branch mismatch cleanup: removed ${mismatched.length} file(s) from branch(es) ${[...new Set(mismatched.map(f => f.branch).filter(Boolean))].join(', ')}`
       );
     }
 

@@ -22,8 +22,12 @@
   "Loading diff editor...": "正在加载差异编辑器...",
   "hunk(s) remaining": "个 Hunk 剩余",
   "All changes processed.": "所有变更已处理完毕。",
+  "Previous Hunk": "上一个修改",
+  "Next Hunk": "下一个修改",
   "session": "会话",
   "reviewed": "已审查",
-  "Detected Git branch switch (current: `{0}`, snapshot belongs to: `{1}`).\n\n{2} file(s) from other branch — clean up?\n\n{3}": "检测到 Git 分支已切换（当前: `{0}`，快照所属: `{1}`）。\n\n{2} 个文件的快照属于其他分支，是否清理？\n\n{3}",
+  "Detected a Git branch switch to \"{0}\".": "检测到 Git 分支已切换到 \"{0}\"。",
+  "{0} file(s) were recorded on another branch — clean them up?": "{0} 个文件的快照属于其他分支，是否清理？",
+  "…and {0} more file(s)": "…另有 {0} 个文件",
   "CC Diff: {0}/{1} file(s) failed to revert:\n{2}": "CC Diff: {0}/{1} 个文件还原失败:\n{2}"
 }

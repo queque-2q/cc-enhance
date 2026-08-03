@@ -4,7 +4,7 @@
   "description": "%cc-diff.description%",
   "version": "0.2.0",
   "license": "MIT",
-  "icon": "media/icon.png",
+  "icon": "media/panda-icon.png",
   "publisher": "cc-diff",
   "repository": {
     "type": "git",
@@ -21,6 +21,7 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "l10n": "./l10n",
     "commands": [
       {
         "command": "cc-diff.setupHooks",

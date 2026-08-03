@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 import { execSync } from 'child_process';
 import { type LineChange, extractLines, replaceLineRange } from './lineOps';
 
@@ -448,4 +449,28 @@ export class SnapshotManager {
       }
     }
   }
+}
+
+/** Max file paths shown inline in the branch-switch notice before truncating. */
+const BRANCH_NOTICE_MAX_FILES = 5;
+
+/**
+ * Build the human-readable warning message for the branch-switch prompt.
+ * Removes markdown backticks (VSCode notifications don't render markdown),
+ * folds the count into one sentence so it reads correctly for 1..N source
+ * branches, and truncates the file list to {@link BRANCH_NOTICE_MAX_FILES}.
+ */
+export function buildBranchNotice(currentBranch: string, mismatched: TrackedFile[]): string {
+  const count = mismatched.length;
+  const shown = mismatched.slice(0, BRANCH_NOTICE_MAX_FILES).map(f => f.file);
+  const hidden = count - shown.length;
+
+  let fileList = shown.join('\n');
+  if (hidden > 0) {
+    fileList += `\n${vscode.l10n.t('…and {0} more file(s)', hidden)}`;
+  }
+
+  const title = vscode.l10n.t('Detected a Git branch switch to "{0}".', currentBranch);
+  const question = vscode.l10n.t('{0} file(s) were recorded on another branch — clean them up?', count);
+  return [title, question, fileList].join('\n\n');
 }

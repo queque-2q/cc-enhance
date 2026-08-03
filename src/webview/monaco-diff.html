@@ -242,6 +242,10 @@
     // Set initial i18n text for static elements
     document.getElementById('loading-text').textContent = t('loading', 'Loading diff editor...');
 
+    // Localize the hunk-navigation buttons' tooltips (keep the ◀/▶ glyphs).
+    document.getElementById('btn-prev-hunk').title = t('prevHunk', 'Previous Hunk');
+    document.getElementById('btn-next-hunk').title = t('nextHunk', 'Next Hunk');
+
     // ==================================================================
     // State
     // ==================================================================
@@ -396,6 +400,10 @@
         return;
       }
 
+      // New file → allow re-positioning the cursor to the first hunk.
+      if (state.file !== data.file) {
+        state._initialCursorSet = false;
+      }
       state.file = data.file;
 
       var container = document.getElementById('editor-container');
@@ -460,6 +468,14 @@
           modified: state.modifiedModel,
         });
 
+        // The diff is computed asynchronously in a Monaco worker, so
+        // getLineChanges() is not available immediately after setModel. Rebuild
+        // the hunk UI once Monaco finishes computing the diff (and on every
+        // subsequent recompute, e.g. after the user edits the modified model).
+        state.diffEditor.onDidUpdateDiff(function () {
+          rebuildHunks();
+        });
+
         syncTheme();
 
         // Enable visible cursor on modified editor (readOnly hides it by default)
@@ -488,37 +504,15 @@
       // Model is now synced to disk content — clear any dirty marker
       setDirty(false);
 
-      // Populate changes from Monaco AFTER the editor and models exist
-      state.changes = getChanges();
-      updateToolbar(state.changes.length);
-
-      // Create overlay buttons for each hunk
-      for (var i = 0; i < state.changes.length; i++) {
-        addHunkButtons(state.changes[i]);
-      }
+      // Rebuild hunk overlay + nav. For the async diff this also runs when
+      // onDidUpdateDiff fires; rebuildHunks is idempotent and re-positions the
+      // cursor to the first hunk exactly once per file.
+      rebuildHunks();
 
       // Initial position sync (after Monaco has laid out)
       requestAnimationFrame(function () {
         syncOverlayPositions();
       });
-
-      // Update footer
-      document.getElementById('footer-text').textContent =
-        state.changes.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
-
-      // Set cursor to first hunk start line (avoid default 1,1 position)
-      if (state.changes.length > 0) {
-        var firstLine = changeAnchorLine(state.changes[0]);
-        state.diffEditor.getModifiedEditor().setSelection({
-          startLineNumber: firstLine,
-          startColumn: 1,
-          endLineNumber: firstLine,
-          endColumn: 1
-        });
-      }
-
-      // Initialize nav buttons
-      updateNavButtons();
     }
 
     function updateDiff(data) {
@@ -542,14 +536,54 @@
       var raw = state.diffEditor.getLineChanges();
       if (!raw || !raw.length) return [];
       return raw.map(function (c, i) {
+        // Monaco reports an empty side (pure insert/delete) as [insertIdx, 0]
+        // where insertIdx is 0-based. Normalize to the 1-based inclusive
+        // convention [insertIdx+1, insertIdx] used everywhere in this file, so
+        // keep/undo and anchors treat add-only and delete-only hunks uniformly.
+        var oStart = c.originalStartLineNumber;
+        var oEnd = c.originalEndLineNumber;
+        if (oEnd === 0) { oStart = oStart + 1; oEnd = oStart - 1; }
+        var mStart = c.modifiedStartLineNumber;
+        var mEnd = c.modifiedEndLineNumber;
+        if (mEnd === 0) { mStart = mStart + 1; mEnd = mStart - 1; }
         return {
           id: i,
-          originalStartLineNumber: c.originalStartLineNumber,
-          originalEndLineNumber: c.originalEndLineNumber,
-          modifiedStartLineNumber: c.modifiedStartLineNumber,
-          modifiedEndLineNumber: c.modifiedEndLineNumber
+          originalStartLineNumber: oStart,
+          originalEndLineNumber: oEnd,
+          modifiedStartLineNumber: mStart,
+          modifiedEndLineNumber: mEnd
         };
       });
+    }
+
+    /**
+     * Recompute changes from Monaco and rebuild the hunk overlay + nav + footer
+     * UI. Idempotent. Runs after each render AND when Monaco finishes computing
+     * the diff asynchronously (onDidUpdateDiff), so the count/positions stay
+     * correct even though getLineChanges() is not ready synchronously.
+     */
+    function rebuildHunks() {
+      if (!state.diffEditor) return;
+      state.changes = getChanges();
+      clearHunkButtons();
+      for (var i = 0; i < state.changes.length; i++) {
+        addHunkButtons(state.changes[i]);
+      }
+      updateToolbar(state.changes.length);
+      syncOverlayPositions();
+      document.getElementById('footer-text').textContent =
+        state.changes.length + ' ' + t('hunksRemaining', 'hunk(s) remaining');
+      // Set cursor to first hunk start line once (avoid default 1,1 position).
+      if (state.changes.length > 0 && !state._initialCursorSet) {
+        state._initialCursorSet = true;
+        var firstLine = changeAnchorLine(state.changes[0]);
+        state.diffEditor.getModifiedEditor().setSelection({
+          startLineNumber: firstLine,
+          startColumn: 1,
+          endLineNumber: firstLine,
+          endColumn: 1
+        });
+      }
     }
 
     /** Map a change to the modified-side line its buttons/nav should anchor on. */

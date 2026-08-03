@@ -328,6 +328,19 @@ export class MonacoDiffProvider {
   private _refreshDiff(): void {
     if (!this._currentFile) return;
 
+    // If the file is no longer tracked, its last hunk was just processed and
+    // the entry cleaned up — nothing left to review. Treat as all processed
+    // instead of re-reading an (empty) snapshot and rendering a bogus
+    // whole-file diff.
+    if (!this._snapshotManager.getFileEntry(this._currentFile)) {
+      this._panel?.webview.postMessage({ command: 'allProcessed' });
+      if (this._panel) {
+        this._panel.dispose(); // onDidDispose cleans up state
+      }
+      this._onFileProcessed?.(this._currentFile);
+      return;
+    }
+
     // Treat missing snapshot as empty (file creation scenario)
     const snapshotContent = this._snapshotManager.getSnapshotContent(this._currentFile) ?? '';
 
@@ -373,6 +386,10 @@ export class MonacoDiffProvider {
       undo: vscode.l10n.t('Undo'),
       hunksRemaining: vscode.l10n.t('hunk(s) remaining'),
       allProcessed: vscode.l10n.t('All changes processed.'),
+      // Detect the display language directly (vscode.env.language) so the
+      // tooltip is reliable even when the l10n bundle isn't loaded yet.
+      prevHunk: vscode.l10n.t(/^zh/i.test(vscode.env.language) ? '上一个修改' : 'Previous Hunk'),
+      nextHunk: vscode.l10n.t(/^zh/i.test(vscode.env.language) ? '下一个修改' : 'Next Hunk'),
     };
     return `<script>window.__i18n=${JSON.stringify(strings)};</script>`;
   }

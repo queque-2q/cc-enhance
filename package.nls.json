@@ -4,7 +4,7 @@
   "cc-diff.command.undoAllFileEditor": "Undo All",
   "cc-diff.command.prevHunk": "Previous Hunk",
   "cc-diff.command.nextHunk": "Next Hunk",
-  "cc-diff.command.toggleDiffMode": "切换双列/单列模式",
+  "cc-diff.command.toggleDiffMode": "Toggle Diff Show Mode",
   "cc-diff.command.openCurrentFile": "Open File",
   "cc-diff.command.saveDiff": "Save",
   "cc-diff.viewContainer.title": "CC Diff",

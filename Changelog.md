@@ -1,8 +1,9 @@
 # Changelog
 
-## TODO
+## 0.2.0
 
-- monaco diff显示和git diff命令算法不太一致，所以hunk块不太对得上
+- hunk块显示算法统一，从git diff改成monaco diff编辑器的算法
+- 优化
 
 ## 0.1.3
 

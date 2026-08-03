@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { SnapshotManager } from './SnapshotManager';
+import { SnapshotManager, buildBranchNotice } from './SnapshotManager';
 import { WebviewProvider } from './WebviewProvider';
 import { MonacoDiffProvider } from './MonacoDiffProvider';
 import { HooksManager } from './HooksManager';
@@ -305,15 +305,10 @@ async function handleBranchCleanupSignal(workspaceRoot: string): Promise<void> {
     return;
   }
 
-  const branches = [...new Set(mismatched.map(f => f.branch).filter(Boolean))];
-  const branchList = branches.join(', ');
-  const fileList = mismatched.map(f => f.file).join('\n');
+  const branchList = [...new Set(mismatched.map(f => f.branch).filter(Boolean))].join(', ');
 
   const answer = await vscode.window.showWarningMessage(
-    vscode.l10n.t(
-      'Detected Git branch switch (current: `{0}`, snapshot belongs to: `{1}`).\n\n{2} file(s) from other branch — clean up?\n\n{3}',
-      currentBranch, branchList, mismatched.length, fileList
-    ),
+    buildBranchNotice(currentBranch, mismatched),
     vscode.l10n.t('Clean Up'),
     vscode.l10n.t('Cancel')
   );
